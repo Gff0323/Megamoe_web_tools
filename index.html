@@ -1,0 +1,1685 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MoE 理论 Roofline 计算器</title>
+<style>
+:root{
+  --bg:#eef2f7; --card:#ffffff; --line:#e2e8f0; --txt:#0f172a; --muted:#64748b;
+  --accent:#2563eb; --blue:#2563eb; --orange:#f59e0b; --green:#10b981;
+  --red:#ef4444; --dark:#111827;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:"Segoe UI","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  background:var(--bg);color:var(--txt);font-size:14px}
+header{padding:14px 20px 12px;border-bottom:1px solid var(--line);background:#fff}
+h1{margin:0;font-size:19px;letter-spacing:.2px}
+.sub{color:var(--muted);font-size:12.5px;margin-top:5px}
+.layout{display:flex;gap:16px;padding:16px;align-items:flex-start}
+aside.cfg{width:300px;flex:0 0 auto;position:sticky;top:12px}
+main{flex:1;min-width:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 1px 2px rgba(15,23,42,.06)}
+/* ---------- config panel ---------- */
+.cfg{padding:12px 14px}
+.cfg h3{margin:14px 0 8px;font-size:12px;color:var(--muted);font-weight:600;
+  text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--line);
+  padding-bottom:4px}
+.cfg h3:first-child{margin-top:2px}
+.row{display:flex;align-items:center;gap:8px;margin:7px 0}
+.row label{flex:0 0 96px;font-size:12.5px;color:#334155}
+.row input[type=number],.row input[type=text]{flex:1;min-width:0;border:1px solid #cbd5e1;
+  border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;background:#fff}
+.row input:focus{outline:2px solid #bfdbfe;border-color:var(--accent)}
+.hint{font-size:11px;color:#94a3b8;margin:2px 0 6px 104px}
+.seg{display:flex;border:1px solid #cbd5e1;border-radius:7px;overflow:hidden;margin:7px 0}
+.seg button{flex:1;border:none;background:#f8fafc;padding:6px 4px;font-size:12px;
+  cursor:pointer;font-family:inherit;color:#475569}
+.seg button.active{background:var(--accent);color:#fff;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.chips button,.presets button,.tblbar button{border:1px solid #cbd5e1;background:#fff;
+  border-radius:6px;padding:4px 9px;font-size:12px;cursor:pointer;font-family:inherit;color:#334155}
+.chips button:hover,.presets button:hover,.tblbar button:hover{border-color:var(--accent);color:var(--accent)}
+.presets{display:flex;gap:6px;margin-top:10px}
+.presets button{flex:1}
+#err{display:none;margin:0 16px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;
+  border-radius:8px;padding:9px 13px;font-size:13px;margin-bottom:0}
+/* ---------- main ---------- */
+.echo{background:#0f172a;color:#cbd5e1;border-radius:8px;padding:8px 12px;
+  font-family:ui-monospace,Consolas,monospace;font-size:11.8px;line-height:1.65;
+  margin-bottom:12px;white-space:pre-wrap;word-break:break-all}
+.echo .warn{color:#fbbf24}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px}
+.mfurow{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+.mfurow label{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)}
+.mfurow input,.mfurow select{width:96px;padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:13px;background:#fff;color:var(--txt)}
+#memKpis{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+#memKpis .kv{font-size:22px}
+#memKpis .kl{font-size:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 13px}
+.kl{font-size:11.5px;color:var(--muted)}
+.kv{font-size:19px;font-weight:700;margin:3px 0 2px;font-variant-numeric:tabular-nums}
+.kv small{font-size:12px;font-weight:600;color:var(--muted)}
+.ks{font-size:11.5px;color:#94a3b8}
+.kbar{display:flex;height:7px;border-radius:4px;overflow:hidden;background:var(--line);margin:6px 0 5px}
+.kbar-seg{height:100%;min-width:1px}
+.kbrk{display:flex;flex-wrap:wrap;gap:3px 12px;font-size:11.5px;color:var(--muted);margin-bottom:4px}
+.kbrk i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.kbrk b{color:var(--txt);font-variant-numeric:tabular-nums;font-weight:600}
+.chartbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.chartbar .lab{font-size:12.5px;color:var(--muted)}
+.colsel{display:flex;border:1px solid #cbd5e1;border-radius:7px;overflow:hidden}
+.colsel button{border:none;background:#fff;padding:4px 13px;font-size:12px;cursor:pointer;font-family:inherit;color:#475569}
+.colsel button.active{background:var(--accent);color:#fff;font-weight:600}
+.charts{display:grid;gap:14px;margin-bottom:14px}
+.charts.cols-1{grid-template-columns:minmax(0,1fr)}
+.charts.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.charts.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:1100px){.charts{grid-template-columns:minmax(0,1fr) !important}}
+.xbtn{border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:2.5px 9px;font-size:11.5px;
+  cursor:pointer;color:#64748b;font-family:inherit}
+.xbtn:hover{border-color:var(--accent);color:var(--accent)}
+.chartmount{cursor:zoom-in}
+#modal{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;
+  align-items:center;justify-content:center;z-index:50;padding:22px}
+#modal.open{display:flex}
+.mcard{background:#fff;border-radius:12px;max-width:min(96vw,1400px);width:100%;max-height:92vh;
+  display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.32)}
+.mhead{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:12px 16px;border-bottom:1px solid var(--line)}
+.mhead .card-t{font-size:14.5px;font-weight:650}
+.mclose{border:none;background:#f1f5f9;border-radius:6px;padding:5px 13px;font-size:13px;
+  cursor:pointer;font-family:inherit;color:#334155}
+.mclose:hover{background:#e2e8f0}
+.mbody{padding:6px 10px 12px;overflow:auto}
+.mbody .chartsvg{max-height:76vh}
+/* ---------- tab bar ---------- */
+.tabbar{display:flex;gap:8px;margin-bottom:14px}
+.tabbar button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;
+  padding:8px 18px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#475569}
+.tabbar button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+body.mem .layout > aside.cfg{display:none}
+/* ---------- 显存页 ---------- */
+.errbox{display:none;margin-bottom:14px;background:#fef2f2;border:1px solid #fecaca;
+  color:#b91c1c;border-radius:8px;padding:9px 13px;font-size:13px}
+.warnbox{display:none;margin-bottom:14px;background:#fffbeb;border:1px solid #fde68a;
+  color:#92400e;border-radius:8px;padding:9px 13px;font-size:13px}
+.memcfg{padding:12px 14px;margin-bottom:14px}
+.memcfg .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px 14px}
+.memcfg .f label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
+.memcfg .f input{width:100%;border:1px solid #cbd5e1;border-radius:6px;padding:5px 7px;
+  font-size:13px;font-family:inherit;background:#fff;box-sizing:border-box}
+.memcfg .f input:focus{outline:2px solid #bfdbfe;border-color:var(--accent)}
+.memrow0{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.cfglab{font-size:12px;color:#475569;font-weight:600;white-space:nowrap}
+.memrow2{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:11px}
+.mchips{display:inline-flex;gap:6px;flex-wrap:wrap}
+.mchips button{border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:3.5px 9px;
+  font-size:11.5px;cursor:pointer;font-family:inherit;color:#475569}
+.mchips button:hover{border-color:var(--accent);color:var(--accent)}
+.badge{display:inline-flex;align-items:center;gap:5px;border-radius:6px;padding:3px 10px;
+  font-size:12px;font-weight:600}
+.badge.ok{background:#dcfce7;color:#166534}
+.badge.bad{background:#fee2e2;color:#991b1b}
+.mnote{font-size:11.5px;color:#94a3b8;margin-top:8px;line-height:1.65}
+.sec-h{display:flex;align-items:baseline;gap:10px;margin:18px 2px 8px;font-size:14px;
+  font-weight:700;color:#0f172a}
+.sec-h .sec-sub{font-size:11.5px;font-weight:500;color:#94a3b8}
+.ltg{display:inline-block;border-radius:5px;padding:1px 7px;font-size:11px;font-weight:600;white-space:nowrap}
+.lt-saved{background:#dbeafe;color:#1e40af}
+.lt-trans{background:#f1f5f9;color:#475569}
+.lt-bwd{background:#fef3c7;color:#92400e}
+.lt-shmem{background:#fae8ff;color:#86198f}
+.lt-w{background:#dcfce7;color:#166534}
+.lt-io{background:#e0f2fe;color:#075985}
+tr.grp td{background:#f8fafc;font-weight:650;color:#334155}
+td.bytes{font-family:ui-monospace,Consolas,monospace;font-size:11.8px}
+.about table{font-size:12px}
+.about td,.about th{text-align:left;padding:4px 10px}
+.detcard summary{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;list-style:none}
+.detcard summary::-webkit-details-marker{display:none}
+.detcard summary::before{content:'▸';color:#94a3b8;font-size:12px}
+.detcard[open] summary::before{content:'▾'}
+.detcard summary .card-t{font-size:13px;font-weight:650}
+.detcard summary button{margin-left:auto}
+.detcard .tblwrap{border-top:1px solid var(--line)}
+.card-h{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap;padding:10px 13px 2px}
+.card-t{font-size:13px;font-weight:650}
+.legend{padding:2px 13px 6px;display:flex;flex-wrap:wrap;gap:3px 12px}
+.lg{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:#475569;white-space:nowrap}
+.sw{display:inline-block}
+.sw.line{width:16px;border-top:2.5px solid var(--c)}
+.sw.dash{width:16px;border-top:2.5px dashed var(--c)}
+.sw.box{width:10px;height:9px;background:var(--c);border-radius:2px}
+.chartmount{padding:0 8px 8px}
+.chartsvg{width:100%;height:auto;display:block}
+.nochart{display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px}
+/* svg text */
+.grid{stroke:#e8edf3;stroke-width:1}
+.axis{stroke:#94a3b8;stroke-width:1}
+.ytick,.xtick{font-size:10.5px;fill:#64748b}
+.axlab{font-size:11px;fill:#475569;font-weight:600}
+.ann{font-size:8.5px}
+.reflab{font-size:9.5px;font-weight:600}
+/* ---------- table ---------- */
+.tblbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 13px}
+.tblbar .sp{flex:1}
+.tblwrap{max-height:520px;overflow:auto;border-top:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;font-size:12.3px}
+th{position:sticky;top:0;background:#f1f5f9;z-index:2;font-weight:600;color:#334155;
+  padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right}
+th:first-child,td:first-child{text-align:left}
+td{padding:5px 9px;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+td.num{font-family:ui-monospace,Consolas,monospace;font-size:11.8px}
+tbody tr:hover{background:#f0f6ff}
+tr.best{background:#f0fdf4}
+tr.best:hover{background:#e5fbee}
+tr.epnew td{border-top:1px solid #dbe4ee}
+.b{border-radius:5px;padding:1.5px 7px;font-size:11px;font-weight:600}
+.b-HCCS{background:#dcfce7;color:#166534}
+.b-RACK{background:#ffedd5;color:#9a3412}
+.b-CAGE{background:#fee2e2;color:#991b1b}
+.r{font-size:11.5px;font-weight:600}
+.r-cb{color:#1d4ed8}
+.r-mb{color:#b91c1c}
+/* ---------- about / toast ---------- */
+details.about{margin:0 0 14px;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:10px 14px;font-size:12.8px;color:#475569}
+details.about summary{cursor:pointer;font-weight:600;color:#334155}
+details.about pre{background:#f8fafc;border:1px solid var(--line);border-radius:8px;
+  padding:10px 12px;font-size:12px;overflow:auto;line-height:1.7}
+#toast{position:fixed;right:18px;bottom:18px;background:#0f172a;color:#fff;padding:9px 16px;
+  border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:99}
+#toast.show{opacity:.96}
+@media (max-width:960px){
+  .layout{flex-direction:column}
+  aside.cfg{width:100%;position:static}
+  .charts{grid-template-columns:1fr}
+  .hint{margin-left:0}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>MoE 理论 Roofline 计算器</h1>
+  <div class="sub">GEMM 计算 vs 通信竞速 · 融合加速物理上限 · MegaMoe 显存/激活账本 —— 纯理论，不依赖 NPU。<br>
+    Roofline 页与 <code>roofline_probe.py</code> / <code>ep_probe.py</code> 数值一致；
+    显存页与 kernel workspace 布局（saved/transient/backward/SHMEM）逐字节一致，改配置即时出数</div>
+</header>
+<div id="err"></div>
+<div class="layout">
+
+<aside class="card cfg" id="cfgForm">
+  <h3>模型 Shape</h3>
+  <div class="row"><label>M（tokens/rank）</label><input type="number" id="in-m" min="1" step="64" value="4096"></div>
+  <div class="row"><label>K（hidden）</label><input type="number" id="in-k" min="1" step="64" value="7168"></div>
+  <div class="row"><label>topK</label><input type="number" id="in-topk" min="1" step="1" value="8"></div>
+  <div class="row"><label>F 列表</label><input type="text" id="in-f" value="3072,4096,8192"></div>
+  <div class="hint">FFN 中间维，逗号分隔，每档一条曲线</div>
+
+  <h3>计算口径与算力</h3>
+  <div class="seg" id="segMode">
+    <button data-v="layer" class="active" title="fwd 6 RFK + bwd 16 RFK">整层 fwd+bwd · 22RFK</button>
+    <button data-v="bwd" title="bwd 重计算口径">仅反向 · 16RFK</button>
+  </div>
+  <div class="row"><label>cube TFLOPS</label><input type="number" id="in-cube" min="0.1" step="0.1" value="410.4"></div>
+  <div class="hint">GEMM 有效吞吐（432 峰值×0.95=410.4），按实测 roofline 校准</div>
+
+  <h3>互连带宽（单向 GB/s）</h3>
+  <div class="row"><label>HCCS 节点内</label><input type="number" id="in-hccs" min="0.1" step="0.1" value="247.8"></div>
+  <div class="row"><label>柜内节点间</label><input type="number" id="in-rack" min="0.1" step="0.1" value="141.6"></div>
+  <div class="row"><label>跨柜</label><input type="number" id="in-cage" min="0.1" step="0.1" value="141.6"></div>
+
+  <h3>拓扑</h3>
+  <div class="row"><label>R_node 卡/节点</label><input type="number" id="in-rn" min="1" step="1" value="8"></div>
+  <div class="row"><label>R_rack 节点/柜</label><input type="number" id="in-rr" min="1" step="1" value="8"></div>
+
+  <h3>EP 扫描点</h3>
+  <div class="row"><label>EP 列表</label><input type="text" id="in-eps" value="8,16,32,64,128,256,512,1024"></div>
+  <div class="hint">逗号分隔；须为 R_node 整数倍，否则该点跳过</div>
+  <div class="chips">
+    <button data-eps="8,16,32,64,128,256,512,1024">8→1024</button>
+    <button data-eps="8,16,32,64,128,256,320">8→320</button>
+    <button data-eps="8,16,32,64">≤1 柜</button>
+  </div>
+
+  <h3>预设</h3>
+  <div class="presets">
+    <button id="pre-roofline">roofline_probe 默认</button>
+    <button id="pre-epprobe">ep_probe 默认</button>
+  </div>
+</aside>
+
+<main>
+  <div class="tabbar" id="tabbar">
+    <button data-tab="roof" class="active">⏱ 理论 Roofline · 耗时 / 加速上限</button>
+    <button data-tab="mem">🧠 显存分析 · MegaMoe workspace 账本</button>
+  </div>
+  <div id="tabRoofline">
+  <div class="echo" id="echo"></div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="chartbar">
+    <span class="lab">图表布局：</span>
+    <div class="colsel">
+      <button data-cols="1">单列（最大）</button>
+      <button data-cols="2" class="active">双列</button>
+      <button data-cols="3">三列（紧凑）</button>
+    </div>
+    <span class="lab">点击图表可放大全屏查看</span>
+  </div>
+  <div class="charts cols-2" id="charts">
+    <div class="card"><div class="card-h"><div class="card-t">计算 vs 通信竞速（交叉点 = 受限状态切换）</div>
+      <button class="xbtn" data-chart="ch1" data-title="计算 vs 通信竞速">放大 ⤢</button></div>
+      <div class="legend" id="lg1"></div><div class="chartmount" id="ch1"></div></div>
+    <div class="card"><div class="card-h"><div class="card-t">融合加速上限 = (C+N) / max(C,N)</div>
+      <button class="xbtn" data-chart="ch2" data-title="融合加速上限">放大 ⤢</button></div>
+      <div class="legend" id="lg2"></div><div class="chartmount" id="ch2"></div></div>
+    <div class="card"><div class="card-h"><div class="card-t">通信:计算比 N:C（低于红线 = 计算受限）</div>
+      <button class="xbtn" data-chart="ch3" data-title="通信:计算比 N:C">放大 ⤢</button></div>
+      <div class="legend" id="lg3"></div><div class="chartmount" id="ch3"></div></div>
+    <div class="card"><div class="card-h"><div class="card-t">绝对耗时：串行小算子（虚） vs 理想重叠（实）</div>
+      <button class="xbtn" data-chart="ch4" data-title="绝对耗时：串行 vs 理想重叠">放大 ⤢</button></div>
+      <div class="legend" id="lg4"></div><div class="chartmount" id="ch4"></div></div>
+    <div class="card"><div class="card-h"><div class="card-t">各网络腿耗时 vs EP（对数轴，取最慢者为每向）</div>
+      <button class="xbtn" data-chart="ch5" data-title="各网络腿耗时 vs EP">放大 ⤢</button></div>
+      <div class="legend" id="lg5"></div><div class="chartmount" id="ch5"></div></div>
+    <div class="card"><div class="card-h"><div class="card-t">每向流量按网络层级拆分（MB / rank）</div>
+      <button class="xbtn" data-chart="ch6" data-title="每向流量按网络层级拆分">放大 ⤢</button></div>
+      <div class="legend" id="lg6"></div><div class="chartmount" id="ch6"></div></div>
+  </div>
+
+  <details class="about">
+    <summary>模型口径说明（与 roofline_probe.py / ep_probe.py 一致）</summary>
+    <pre>C = coef·R·F·K / cube_TFLOPS          ← 全层 GEMM 时间（ms），R = M·topK
+                                        整层 coef=22（fwd 6 + bwd 16）；仅反向 coef=16（重计算口径）
+N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd × dispatch/combine），单位 ms
+四级命中概率（均衡路由 + 均匀 expert 放置）：
+  本卡        1/EP                    → 走 HBM，不计网络
+  节点内他卡  (R_node−1)/EP           → 走 HCCS fullmesh
+  柜内他节点  （柜内卡数−R_node)/EP    → 走柜内互联
+  其他机柜    1 − 柜内卡数/EP         → 走跨柜网络
+  三条腿独立硬件、同时发货 → 每向时间 = max(三腿 流量÷带宽)
+串行（小算子）T = C + N ；理想融合 T = max(C, N)
+加速上限 = (C+N)/max(C,N) &lt; 2.0 ；重叠率 = min(C,N)/max(C,N)
+流量 = M·topK·K·2B（BF16），MB ÷ (GB/s) = ms</pre>
+  </details>
+
+  <div class="card" id="mfuForm">
+    <div class="tblbar"><div class="card-t">实测 MFU（输入 bench 耗时，对比 roofline 上限）</div></div>
+    <div class="mfurow">
+      <label>实测耗时 <input type="number" id="in-mfu-ms" min="0" step="0.01" placeholder="ms"> ms/次</label>
+      <label>EP <input type="number" id="in-mfu-ep" min="1" step="1" value="8"></label>
+      <label>F <select id="in-mfu-f"></select></label>
+      <span class="sec-sub">口径跟随上方"口径"切换 · FLOPs = coef·R·F·K（R = M·topK）· C / N 与数据表同行同源</span>
+    </div>
+    <div class="kpis" id="mfuKpis"></div>
+  </div>
+
+  <div class="card">
+    <div class="tblbar">
+      <div class="card-t">全量数据表（<span id="rowcnt"></span> 行）</div>
+      <div class="sp"></div>
+      <button id="btn-csv">导出 CSV</button>
+      <button id="btn-cli">复制 Python 命令行</button>
+      <button id="btn-link">复制分享链接</button>
+    </div>
+    <div class="tblwrap"><table id="tbl"></table></div>
+  </div>
+  </div><!-- /tabRoofline -->
+
+  <div id="tabMemory" style="display:none">
+    <div class="sec-h">① 配置<span class="sec-sub">符号与口径见页底 ⑥ · gate/up 模式 = 运行时 MEGAMOE_SAVE_GMM1_OUTPUT（默认 bf16）</span></div>
+    <div class="card memcfg" id="memForm">
+      <div class="memrow0">
+        <span class="cfglab">路径</span>
+        <div class="seg" id="segVar" style="margin:0;max-width:300px">
+          <button data-v="normal" class="active">普通 BF16</button>
+          <button data-v="mgroup">MGroup</button>
+          <button data-v="udma">UDMA</button>
+        </div>
+        <span class="cfglab">gate/up</span>
+        <div class="seg" id="segSave" style="margin:0;max-width:500px">
+          <button data-v="none">重算</button>
+          <button data-v="bf16" class="active">保存 BF16</button>
+          <button data-v="mxfp8">保存 MXFP8</button>
+          <button data-v="mxfp8clip">MXFP8+掩码</button>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:11px">
+        <div class="f"><label>M（tokens/rank）</label><input type="number" id="mm-m" min="1" step="64" value="4096"></div>
+        <div class="f"><label>K（hidden）</label><input type="number" id="mm-k" min="1" step="64" value="7168"></div>
+        <div class="f"><label>F（SwiGLU 中间宽，N=2F）</label><input type="number" id="mm-f" min="1" step="128" value="4096"></div>
+        <div class="f"><label>topK</label><input type="number" id="mm-topk" min="1" step="1" value="16"></div>
+        <div class="f"><label>EP（rank 数）</label><input type="number" id="mm-ep" min="1" step="1" value="8"></div>
+        <div class="f"><label>EPR（expert/rank）</label><input type="number" id="mm-epr" min="1" step="1" value="4"></div>
+        <div class="f"><label>maxRecvTokens（接收容量）</label><input type="number" id="mm-r" min="1" step="128" value="65536"></div>
+        <div class="f"><label>HBM（GB/rank）</label><input type="number" id="mm-hbm" min="1" step="1" value="64"></div>
+      </div>
+      <div class="memrow2">
+        <span class="cfglab">maxRecvTokens 预设</span>
+        <span class="mchips">
+          <button data-rr="mt" title="均衡路由：每 rank 平均接收 M·T 行（发多少收多少），Align128。对应测试 balanced 模式（默认）">均衡 M·T</button>
+          <button data-rr="mepmin" title="随机/不均衡路由的无丢行上限：一个 token 的 T 个选择最多 min(EPR,T) 个落在同一 rank。对应测试 random/imbalanced 模式">不均衡上限</button>
+          <button data-rr="mept" title="不考虑 topK 去重的理论极限，一般用不到">理论上限</button>
+        </span>
+        <span class="mchips"><button id="mm-sync" title="把 Roofline 页当前的 M/K/topK 抄过来，F 取其 F 列表最大值">⇩ 同步 Roofline 页</button></span>
+        <span class="badge ok" id="mm-anchor">模型自检…</span>
+      </div>
+      <div class="mnote">maxRecvTokens = 接收容量（公式/形状里简写 R）：每 rank 按"最多接收多少行"预留 [R,K]/[R,F] 等缓冲，
+        直接决定 saved / transient / backward 三块的大小。点预设按路由假设自动填入——
+        均衡 = Align128(M·T)；不均衡上限 = M·EP·min(EPR,T)；理论极限 = M·EP·T。
+        右侧徽章 = 页面模型与仓库权威公式对 8 个已知数对账（悬停看明细）。</div>
+    </div>
+    <div class="errbox" id="memErr"></div>
+    <div class="warnbox" id="memWarn"></div>
+
+    <div class="sec-h">② 总览（每 rank）<span class="sec-sub">大家最关心的四个数：前向峰值 · 反向峰值 · SHMEM 额度 · 前向保存</span></div>
+    <div class="kpis" id="memKpis"></div>
+
+    <details class="card detcard" style="margin-bottom:14px">
+      <summary><span class="card-t">③ 字节账本明细（逐字段对齐 kernel 布局，点击展开）</span>
+        <button id="mm-csv">导出 CSV</button></summary>
+      <div class="tblwrap"><table id="memTbl"></table></div>
+    </details>
+
+    <details class="card detcard" style="margin-bottom:14px">
+      <summary><span class="card-t">④ 存算决策 · 为什么这么存（前向/反向处理方式与理由，点击展开）</span>
+        <span class="sec-sub" id="decideMode"></span></summary>
+      <div class="tblwrap"><table id="memDecide"></table></div>
+    </details>
+
+    <details class="card detcard" style="margin-bottom:14px">
+      <summary><span class="card-t">⑤ 三张图：阶段驻留 / 攒批累积 / maxRecvTokens 扫描（点击展开）</span>
+        <span class="sec-sub">总览看结论，图看各块怎么随 shape / 阶段变</span></summary>
+      <div class="charts">
+        <div class="card"><div class="card-h"><div class="card-t">显存生命周期：各阶段驻留构成（GiB/rank）</div></div>
+          <div class="legend" id="lm1"></div><div class="chartmount" id="m1"></div></div>
+      </div>
+      <div class="charts cols-2">
+        <div class="card"><div class="card-h"><div class="card-t">未完成 backward 的 micro-batch 数 × 驻留显存</div></div>
+          <div class="legend" id="lm2"></div><div class="chartmount" id="m2"></div></div>
+        <div class="card"><div class="card-h"><div class="card-t">maxRecvTokens 扫描：各区块与反向峰值</div></div>
+          <div class="legend" id="lm3"></div><div class="chartmount" id="m3"></div></div>
+      </div>
+    </details>
+
+    <details class="about">
+      <summary>⑥ 口径 · 符号表 · 锚点自检（点击展开）</summary>
+      <table>
+        <thead><tr><th>符号</th><th>含义</th><th>来源 / 约束</th></tr></thead>
+        <tbody>
+          <tr><td><b>M</b></td><td>本 rank 输入 token 数</td><td>x.shape[0]</td></tr>
+          <tr><td><b>K</b></td><td>hidden size</td><td>x.shape[1]；须 %256==0</td></tr>
+          <tr><td><b>F</b></td><td>SwiGLU 中间宽（gate/up 各宽 F）</td><td>weight2.shape[2]；本页输入；与 Roofline 页的 F 同义</td></tr>
+          <tr><td><b>N</b></td><td>W1 输出宽 = 2F（gate+up 拼接）</td><td>weight1.shape[1]；须 %512==0</td></tr>
+          <tr><td><b>T</b></td><td>topK（每 token 路由的 expert 数）</td><td>topk_ids.shape[1]</td></tr>
+          <tr><td><b>P</b></td><td>EP 并行度（rank 数 / world size）</td><td>= 面板的 EP</td></tr>
+          <tr><td><b>E</b></td><td>每 rank 本地 expert 数</td><td>= 面板的 EPR；weight1.shape[0]；总 expert = P×E</td></tr>
+          <tr><td><b>S</b></td><td>计数表行宽（int32 元素数，含对齐）</td><td>S = AlignUp(P·E, 128)；整表 = [P 行 × S 列]</td></tr>
+          <tr><td><b>maxRecvTokens</b>（R）</td><td>接收容量</td><td>balanced = Align128(M·T)；random/imbalanced ≈ M·P·min(E,T)</td></tr>
+          <tr><td>GiB / MiB</td><td>1024 进制字节</td><td>HBM 容量按 10⁹（GB）计</td></tr>
+        </tbody>
+      </table>
+      <p><b>易混点</b>：① 显存页的 <b>R</b>（接收容量，决定 [R,K]/[R,F] 等分配）≠ Roofline 页公式里的
+      <b>R = M·T</b>（总路由行数，算 FLOPs 用）；均衡路由下两者相等。② 公式的 P/E 是 kernel 头文件的
+      单字母约定，与面板的 EP/EPR 同义。③ 计数表 [P,S]：第 src 行前 P·E 个有效，其余为对齐 padding。</p>
+      <p><b>字节公式来源</b>：<code>kernels/mega_moe_bf16/include/mega_moe_training_workspace.h</code>、
+      <code>mega_moe_workspace_info.h</code>、<code>mega_moe_base.h</code>（PeermemInfo）、
+      <code>csrc/ops/mega_moe_bf16_mgroup.cpp</code> 与
+      <code>test/megamoe_bf16_test/test_workspace_layout.py</code>；锚点取自 docs
+      《MegaMoe_BF16_MXFP8_saved_state第一版》《前向持久Workspace第一版与反向适配》§3.3/§9.2。
+      估算口径：topk_ids 按 int32；x/y 与优化器状态由框架持有，不计入算子 workspace。</p>
+      <p><b>SHMEM 额度规则</b>：额度建议 = <code>Align2MiB(布局需要量)</code>——local_mem_size 仅服务本算子，
+      固定 shape 按需给即可；须 2 MiB 对齐，且 shmem.init(size) 与算子构造传同一个值，不足即报错 need=需要量。
+      测试脚本（test_mega_moe.py local_mem_bytes）另有固定底座口径：<code>Align2MiB(max(底座, 需要量))</code>，
+      底座普通/MGroup 2 GiB、UDMA 3 GiB，用于一次 init 兜多种 case。</p>
+      <div id="memAbout"></div>
+    </details>
+  </div>
+</main>
+</div>
+<div id="modal">
+  <div class="mcard">
+    <div class="mhead"><div class="card-t" id="mtitle"></div><button class="mclose" id="mclose">关闭 Esc</button></div>
+    <div class="mbody" id="mbody"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+/*MODEL-START*/
+// ---------- 纯理论模型：与 test/bigop_fused/roofline_probe.py / ep_probe.py 逐行对应 ----------
+function modelAnalyze(cfg){
+  const rows = [], commRows = [], skipped = [];
+  const seen = new Set();
+  for (const ep of cfg.eps){
+    if (ep % cfg.rn !== 0 || ep < cfg.rn){ skipped.push(ep); continue; }
+    if (seen.has(ep)) continue;
+    seen.add(ep);
+    const totalMB = cfg.m * cfg.topk * cfg.k * 2 / 1e6;         // 每 rank 每向毛流量
+    const cardsInMyRack = Math.min(ep, cfg.rn * cfg.rr);
+    const fracNode = (cfg.rn - 1) / ep;                          // 节点内他卡
+    const fracRack = ep > cfg.rn ? (cardsInMyRack - cfg.rn) / ep : 0.0;
+    const fracCage = ep > cfg.rn * cfg.rr ? 1.0 - cardsInMyRack / ep : 0.0;
+    const mbNode = totalMB * fracNode, mbRack = totalMB * fracRack, mbCage = totalMB * fracCage;
+    const tNode = mbNode > 0 ? mbNode / cfg.bwHccs : 0.0;        // MB / (GB/s) = ms
+    const tRack = mbRack > 0 ? mbRack / cfg.bwRack : 0.0;
+    const tCage = mbCage > 0 ? mbCage / cfg.bwCage : 0.0;
+    const tWay = Math.max(tNode, tRack, tCage);                  // 三腿同时发货取最慢
+    const bottleneck = tWay === tNode ? 'HCCS' : (tWay === tRack ? 'RACK' : 'CAGE');
+    const tComm = tWay * 4;                                      // 每层 4 趟
+    const c = { ep, nodes: Math.floor(ep / cfg.rn),
+      racks: Math.max(1, Math.floor(ep / (cfg.rn * cfg.rr))),
+      totalMB, mbNode, mbRack, mbCage, tNode, tRack, tCage, tWay, bottleneck, tComm };
+    commRows.push(c);
+    const R = cfg.m * cfg.topk;
+    for (const f of cfg.fList){
+      const tCompute = cfg.coef * R * f * cfg.k / (cfg.cube * 1e12) * 1e3;  // ms
+      const mx = Math.max(tCompute, tComm), mn = Math.min(tCompute, tComm);
+      rows.push(Object.assign({}, c, {
+        f, tCompute,
+        tSmallop: tCompute + tComm,
+        tIdeal: mx,
+        speedup: mx > 0 ? (tCompute + tComm) / mx : 1.0,
+        overlapPct: mx > 0 ? mn / mx * 100 : 0.0,
+        ncRatio: tCompute > 0 ? tComm / tCompute : null,
+        regime: tCompute > tComm ? 'compute-bound' : 'comm-bound',
+        hiddenMs: mn, exposedMs: mx - mn
+      }));
+    }
+  }
+  return { rows, commRows, skipped };
+}
+/*MODEL-END*/
+/*MEM-MODEL-START*/
+// ---------- MegaMoe 显存模型：与 kernel 头文件 / test_workspace_layout.py 逐项对应 ----------
+// 口径：BF16 激活 2B、元数据 int32 4B；Align_b(x)=向上对齐到 b 字节；
+//      M=tokens/rank, K=hidden, N=W1 输出宽(F=N/2), T=topK, P=EP, E=expertPerRank, R=maxRecvTokens
+function alignUpTo(v, a){ return v <= 0 ? 0 : Math.ceil(v / a) * a; }
+function memModel(c){
+  const M = Math.floor(c.m), K = Math.floor(c.k), N = Math.floor(c.n), T = Math.floor(c.topk),
+        P = Math.floor(c.ep), E = Math.floor(c.epr), R = Math.floor(c.r);
+  const saveMode = c.saveMode || 'none', clip = !!c.clipMasks;   // none | bf16 | mxfp8
+  const F = N / 2, S = alignUpTo(P * E, 128), M256 = alignUpTo(M, 256);
+  const rows = defs => defs.map(d => ({ name: d[0], shape: d[1], formula: d[2], bytes: d[3], life: d[4], role: d[5] }));
+  const sum = a => a.reduce((x, r) => x + r.bytes, 0);
+
+  // ① training_saved_state：前向产生、autograd 持有到 backward 完成（前向"要存"的部分）
+  //    train PR 后普通前向 embedDispatchOutput=false：saved 不含 packed X / routed 权重，
+  //    它们以独立 dispatch_output 张量返回框架；MGroup 仍嵌（默认 true）；
+  //    UDMA 的 packed X / routed 权重本就在 SHMEM 窗（ptrA1 / routed 行）
+  const embed = c.variant === 'mgroup';
+  const savedDefs = [
+    ...(embed ? [['ptrA · packed X', '[R,K] BF16', 'Align512(2·R·K)', alignUpTo(2*R*K, 512), 'saved', '反向 GMM1 重算与 dW1 直接读取；Dispatch 直接写入（MGroup 仍嵌入 saved）']] : []),
+    ['ptrcumsumMM', '[P,E] i32', 'Align512(4·P·E)', alignUpTo(4*P*E, 512), 'saved', '各 expert 按来源 rank 的累计行数 / 分组'],
+    ['expandedRowIdx', 'A256(M)·T i32', '4·Align256(M)·T', 4*M256*T, 'saved', 'sorted→original 路由映射；反向重排 dY'],
+    ['expandedRowIdxGather', 'A256(M)·T i32', '4·Align256(M)·T', 4*M256*T, 'saved', 'original→sorted 逆映射；UnpermuteBackward / TopkGrad'],
+    ['ptrSumBeforeRank', '[P,S] i32', '4·S（S=Align128(P·E)）', 4*S, 'saved', '来源 rank 内本 rank 各 expert 的起点（跨 rank 寻址）'],
+    ['ptrSavedTokenPerExpert', '[P,S] i32', 'Align512(4·P·S)', alignUpTo(4*P*S, 512), 'saved', '完整计数表快照；反向 Restore 回 peermem'],
+    ...(embed ? [['ptrDispatchedTopkWeights', '[R] BF16', 'Align512(2·R)', alignUpTo(2*R, 512), 'saved', '与 packed X 同行序的权重；epilogue Hp=p·H / dH=p·dHp']] : []),
+    ['ptrBwProgress', '[256] i32', 'Align128(1024)', alignUpTo(1024, 128), 'saved', '反向诊断进度码（非数学输入）'],
+  ];
+  // ①b dispatch 输出：独立张量返回框架（normal 变体，embedDispatchOutput=false）
+  //    框架可保留给常规 backward，也可释放走重派发反向（多一次 dispatch 通信换驻留）
+  const dispatchDefs = c.variant === 'normal' ? [
+    ['packed tokens（Xpacked）', '[R,K] BF16', 'Align512(2·R·K)', alignUpTo(2*R*K, 512), 'disp', 'Dispatch 输出独立张量；反向 dW1 的 A 矩阵（重算模式亦供 GMM1 重算）'],
+    ['packed routed TopK 权重', '[R] BF16', 'Align512(2·R)', alignUpTo(2*R, 512), 'disp', '与 packed tokens 同行序；epilogue Hp=p·H / dH=p·dHp'],
+  ] : [];
+  const dispatchOutT = dispatchDefs.reduce((x, d) => x + d[3], 0);
+  const packedXBytes = embed
+    ? (savedDefs.find(d => d[0] === 'ptrA · packed X') || [])[3] || 0
+    : (dispatchDefs[0] ? dispatchDefs[0][3] : 0);
+  const routedWBytes = embed
+    ? (savedDefs.find(d => d[0] === 'ptrDispatchedTopkWeights') || [])[3] || 0
+    : (dispatchDefs[1] ? dispatchDefs[1][3] : 0);
+  const legacySavedT = savedDefs.reduce((x, d) => x + d[3], 0);
+  if (saveMode !== 'none'){
+    const gateStart = alignUpTo(legacySavedT, 512);
+    if (gateStart > legacySavedT)
+      savedDefs.push(['Align512(legacy→gate)', '—', '对齐间隙', gateStart - legacySavedT, 'saved',
+        'v1/v2 追加区起点 512 对齐']);
+    const dBytes = saveMode === 'mxfp8' ? 1 : 2;
+    const scaleElems = Math.ceil(F / 32);
+    const plane = alignUpTo(R * F * dBytes, 512);
+    const extRole = saveMode === 'mxfp8'
+      ? '前向 GMM1 epilogue 量化写入；反向反量化直接读，免 GMM1 重算'
+      : '前向 GMM1 epilogue 直接写入；反向直接读，免 GMM1 重算';
+    savedDefs.push(['gate 平面（GMM1 输出）', `[R,F] ${saveMode === 'mxfp8' ? 'FP8' : 'BF16'}`,
+      `Align512(${dBytes}·R·F)`, plane, 'saved', extRole]);
+    savedDefs.push(['up 平面（GMM1 输出）', `[R,F] ${saveMode === 'mxfp8' ? 'FP8' : 'BF16'}`,
+      `Align512(${dBytes}·R·F)`, plane, 'saved', '同 gate 平面']);
+    if (saveMode === 'mxfp8'){
+      const scale = alignUpTo(R * scaleElems, 512);
+      savedDefs.push(['gate/up MXFP8 scale ×2', '[R,⌈F/32⌉] ×2', `2·Align512(R·⌈F/32⌉)`,
+        2 * scale, 'saved', '每 32 元素一组缩放（gate、up 各一份）']);
+      if (clip)
+        savedDefs.push(['裁剪位平面 ×3（v2）', '[R,⌈F/32⌉] u32 ×3', `3·Align512(4·R·⌈F/32⌉)`,
+          3 * alignUpTo(4 * R * scaleElems, 512), 'saved',
+          'gateHigh/upLow/upHigh 三位平面（swiglu_limit 有限时）']);
+    }
+  }
+  const saved = rows(savedDefs);
+
+  // ② forward transient：仅服务本次前向，返回即释放（前向"不存"的部分 → 反向重算）
+  const transientDefs = [
+    ['ptrA2 · SwiGLU 输出 H', '[R,F] BF16', 'Align512(2·R·F)', alignUpTo(2*R*F, 512), 'trans', 'GMM2 输入；不保存，反向重算 gate/up 重建'],
+    ['ptrFlagSwiGluToGmm2', '[E·16] i32', 'Align128(4·E·16)', alignUpTo(4*E*16, 128), 'trans', '前向同步 flag'],
+    ['ptrFlagDispatchToGmm1', '[E·16] i32', 'Align128(4·E·16)', alignUpTo(4*E*16, 128), 'trans', '前向同步 flag'],
+  ];
+  const groupsPerExpert = Math.ceil(R / 256);
+  if (c.variant === 'udma')
+    transientDefs.push(['combineReady 计数', 'E·⌈R/128⌉ i32', 'Align512(4·E·⌈R/128⌉)', alignUpTo(4*E*Math.ceil(R/128), 512), 'trans', 'UDMA Combine-ready 计数']);
+  else if (c.variant === 'mgroup')
+    transientDefs.push(['MGroup ready flags', 'E·⌈R/256⌉·16 i32', 'Align128(64·E·⌈R/256⌉)', alignUpTo(64*E*groupsPerExpert, 128), 'trans', 'MGroup Wave 调度 ready 区']);
+  else
+    transientDefs.push(['Dispatch tile ready', 'E·⌈R/256⌉·16 i32', 'Align512(64·E·⌈R/256⌉)', alignUpTo(64*E*groupsPerExpert, 512), 'trans', '256 行粒度 Dispatch 发布计数']);
+  const transient = rows(transientDefs);
+
+  // ③ backward workspace：backward 调用时才申请（反向临时 + 重算落盘区）
+  //    保存 gate/up 时无 recomputeGate/Up（直接读 saved 追加区）
+  const dpTiles = Math.ceil(F / 256);
+  const backwardDefs = [
+    ['ptrDO · 加权 dO', '[R,K] BF16', 'Align512(2·R·K)', alignUpTo(2*R*K, 512), 'bwd', 'P0 gather grad_y×p → expert-packed dO'],
+    ...(saveMode === 'none' ? [
+      ['ptrRecomputeGate', '[R,F] BF16', 'Align512(2·R·F)', alignUpTo(2*R*F, 512), 'bwd', 'GMM1 反向重算 gate（仅不保存时需要）'],
+      ['ptrRecomputeUp', '[R,F] BF16', 'Align512(2·R·F)', alignUpTo(2*R*F, 512), 'bwd', 'GMM1 反向重算 up（仅不保存时需要）'],
+    ] : []),
+    ['ptrGradZ', '[R,N] BF16', 'Align512(2·R·N)', alignUpTo(2*R*N, 512), 'bwd', 'dZ：SwiGLU 反向输出 / GMM1 反向输入'],
+    ['ptrHp', '[R,F] BF16', 'Align512(2·R·F)', alignUpTo(2*R*F, 512), 'bwd', 'Hp = p·H（加权 SwiGLU 输出）'],
+    ['ptrDpProducts', '[R,⌈F/256⌉] i32', 'Align512(4·R·⌈F/256⌉)', alignUpTo(4*R*dpTiles, 512), 'bwd', 'dp 部分和（256 宽 F tile，FP32）'],
+    ['反向同步 flags ×3', '—', 'Align128(64·E)+32+32', alignUpTo(64*E, 128) + 32 + 32, 'bwd', 'DispatchToGmm2Grad / Aiv1Ready / HDone'],
+  ];
+  const backward = rows(backwardDefs);
+
+  // ④ SHMEM 对称窗：通信层持有，前向/反向复用（普通/MGroup 同布局）
+  const shmemDefs = (c.variant === 'udma') ? [
+    ['控制/同步保留区', '—', '60 KiB', 61440, 'shmem', 'SHMEM 对称窗口保留区'],
+    ['ptrTokenPerExpert 计数表', '[P,S] i32', '4·P·S', 4*P*S, 'shmem', '跨 rank 路由计数（可变；复用前快照到 saved）'],
+    ['dispatch/combine 数据槽', '2×[M·T,K] BF16', '2·(2·M·T·K)', 2*(2*M*T*K), 'shmem', '发送 / 返回数据区'],
+    ['dispatch 信号区', 'P·E', 'Align512(8·P·E)+512', alignUpTo(8*P*E, 512) + 512, 'shmem', 'UDMA 信号'],
+    ['激活接收区 ptrA1', '[R,K] BF16', 'Align512(2·R·K)', alignUpTo(2*R*K, 512), 'shmem', 'Dispatch 接收 / GMM1 输入；Combine 复用'],
+    ['routed TopK 权重', '[M·T] BF16', 'Align512(2·M·T)', alignUpTo(2*M*T, 512), 'shmem', '来源 rank 排序后权重，MTE 拉取源'],
+  ] : [
+    ['同步/控制保留区', '—', '72 KiB', 73728, 'shmem', '60KiB 旧头 + 4KiB rank 同步 + 8KiB AIV 生成计数（train PR 更新后）；EP≥512 且 EPR≤8 时另加紧凑计数收件箱'],
+    ...((P >= 512 && E > 0 && E <= 8) ? [['紧凑计数收件箱', 'P×64B 包 + 72×i32', 'Align512(64·P)+Align512(288)', alignUpTo(64*P, 512) + alignUpTo(288, 512), 'shmem', 'EP≥512 自动启用：每目的 rank 一个 64B 计数包，解包后仍写同一 dense 计数表']] : []),
+    ['ptrTokenPerExpert 计数表', '[P,S] i32', '4·P·S', 4*P*S, 'shmem', '跨 rank 路由计数（可变；复用前快照到 saved）'],
+    ['ptrA0 dispatch 发送槽', '[M·T,K] BF16', '2·M·T·K', 2*M*T*K, 'shmem', 'InitRouting 结果 / 发送区'],
+    ['ptrRoutedTopkWeights', '[M·T] BF16', 'Align512(2·M·T)', alignUpTo(2*M*T, 512), 'shmem', '来源 rank 排序后权重'],
+    ['ptrD combine 返回槽', '[M·T,K] BF16', '2·M·T·K', 2*M*T*K, 'shmem', 'combine 返回数据区'],
+  ];
+  const shmem = rows(shmemDefs);
+
+  // ⑤ 权重（autograd ctx 持有，不复制进 saved）与 ⑥ 输入/输出/梯度
+  const weights = rows([
+    ['weight1', '[E,N,K] BF16', '2·E·N·K', 2*E*N*K, 'w', '本 rank expert 权重；ctx 持有'],
+    ['weight2', '[E,K,F] BF16', '2·E·K·F', 2*E*K*F, 'w', '本 rank expert 权重；ctx 持有'],
+  ]);
+  const io = rows([
+    ['x 输入', '[M,K] BF16', '2·M·K', 2*M*K, 'io', '框架持有（backward 不读原始 x）'],
+    ['topk_ids', '[M,T] i32', '4·M·T', 4*M*T, 'io', '路由索引（按 int32 估）'],
+    ['topk_weights', '[M,T] BF16', '2·M·T', 2*M*T, 'io', '原始权重；ctx 保存（Host 校验/输出模板）'],
+    ['y 输出', '[M,K] BF16', '2·M·K', 2*M*K, 'io', 'combine 输出'],
+    ['counts', '[E] i32', '4·E', 4*E, 'io', '每 expert 计数输出'],
+    ['grad_y', '[M,K] BF16', '2·M·K', 2*M*K, 'io', '反向输入'],
+    ['dx / dtopk', '[M,K]+[M,T] BF16', '2·M·K+2·M·T', 2*M*K + 2*M*T, 'io', '反向输出'],
+    ['dw1 / dw2', '同 W1/W2', '2·E·(N·K+K·F)', 2*E*(N*K + K*F), 'io', '反向输出（与权重等大）'],
+  ]);
+
+  const savedT = sum(saved), transT = sum(transient), bwdT = sum(backward), shmT = sum(shmem), wT = sum(weights);
+  // SHMEM 额度建议：Align2MiB(布局需要量)。local_mem_size 仅服务本算子，固定 shape 按需给即可；
+  // 测试脚本 local_mem_bytes() 另有固定底座口径（Align2MiB(max(2/3GiB, 需要量))），见 SHMEM 额度规则
+  const shmRecommended = alignUpTo(shmT, 2 * 1024 * 1024);  const ioFwd = 2*M*K + 4*M*T + 2*M*T + 2*M*K + 4*E;   // x, topk_ids, topk_weights, y, counts
+  const ctxT  = 2*M*T + 4*E;                            // ctx 持有的 topk_weights + counts
+  const gradsT = 2*M*K + (2*M*K + 2*M*T) + 2*E*(N*K + K*F);  // grad_y + 输出梯度
+  const phases = [
+    { name: '前向峰值',         saved: savedT, trans: transT, bwd: 0,     shmem: shmRecommended, w: wT, io: ioFwd, disp: dispatchOutT },
+    { name: 'fwd→bwd 驻留',     saved: savedT, trans: 0,      bwd: 0,     shmem: shmRecommended, w: wT, io: ctxT, disp: dispatchOutT },
+    { name: '反向峰值',         saved: savedT, trans: 0,      bwd: bwdT,  shmem: shmRecommended, w: wT, io: ctxT + gradsT, disp: dispatchOutT },
+    { name: '常驻',                saved: 0,      trans: 0,      bwd: 0,     shmem: shmRecommended, w: wT, io: 0, disp: 0 },
+  ];
+  return { c, F, S, saved, transient, backward, shmem, weights, io, legacySavedT,
+    dispatch: rows(dispatchDefs), dispatchOutT, packedXBytes, routedWBytes,
+    savedT, transT, bwdT, shmT, shmRecommended, wT, ioFwd, ctxT, gradsT, phases,
+    perBatch: savedT + dispatchOutT + ctxT, resident: shmRecommended + wT };
+}
+function memAnchors(){
+  // 锚点来源：test_workspace_layout.py（saved 四档，含新签名 n/mode）+
+  // docs《MegaMoe_BF16_MXFP8_saved_state第一版》《前向持久Workspace》§3.3/§9.2
+  //（默认 shape M4096 N8192 K7168 topK16 EP8 EPR4 R65536）
+  const base = { m: 4096, k: 7168, n: 8192, topk: 16, ep: 8, epr: 4, r: 65536 };
+  const mk = (v, o) => memModel(Object.assign({}, base, { variant: v }, o || {}));
+  return [
+    ['saved · 重算/legacy（normal，不含 packed X）', 530432, mk('normal', { saveMode: 'none' }).savedT],
+    ['saved · 保存 BF16（normal，dispatch 独立）', 1074272256, mk('normal', { saveMode: 'bf16' }).savedT],
+    ['saved · 保存 MXFP8（无裁剪）', 554178560, mk('normal', { saveMode: 'mxfp8' }).savedT],
+    ['saved · MXFP8 + 裁剪掩码（v2）', 654841856, mk('normal', { saveMode: 'mxfp8', clipMasks: true }).savedT],
+    ['saved · MGroup BF16（仍嵌 packed X）', 2013927424, mk('mgroup', { saveMode: 'bf16' }).savedT],
+    ['dispatch 输出（packed X + routed 权重）', 939655168, mk('normal').dispatchOutT],
+    ['普通 BF16 transient（含 ready 区）', 536936960, mk('normal').transT],
+    ['UDMA transient', 536879616, mk('udma').transT],
+    ['普通/MGroup SHMEM 布局需要量', 1879257088, mk('normal').shmT],
+    ['UDMA SHMEM 布局需要量', 2818769920, mk('udma').shmT],
+  ];
+}
+/*MEM-MODEL-END*/
+
+// ---------- 小工具 ----------
+const $ = s => document.querySelector(s);
+const SVGNS = 'http://www.w3.org/2000/svg';
+const PALETTE = ['#2563eb','#f59e0b','#10b981','#ef4444','#8b5cf6','#0ea5e9','#d946ef','#64748b'];
+const LEG_COLORS = { node:'#10b981', rack:'#f59e0b', cage:'#ef4444', way:'#111827', comm:'#111827' };
+
+function fmt(v, d){
+  if (v === null || v === undefined) return '–';
+  if (!isFinite(v)) return '∞';
+  return Number(v).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
+}
+function parseList(s){
+  return String(s).split(',').map(t => t.trim()).filter(Boolean)
+    .map(Number).filter(v => Number.isFinite(v) && v > 0);
+}
+function sv(tag, attrs, parent){
+  const e = document.createElementNS(SVGNS, tag);
+  if (attrs) for (const k in attrs){ if (attrs[k] === null || attrs[k] === undefined) continue; e.setAttribute(k, attrs[k]); }
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function niceStep(x){
+  const mag = Math.pow(10, Math.floor(Math.log10(x)));
+  const n = x / mag;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+}
+function niceCeil(v){
+  const s = niceStep(v / 5);
+  return Math.ceil(v / s - 1e-9) * s;
+}
+function tickLabel(t){
+  const a = Math.abs(t);
+  if (a === 0) return '0';
+  if (a >= 1000) return (t / 1000).toFixed(Math.abs(t % 1000) > 1e-9 ? 1 : 0) + 'k';
+  if (a >= 10) return String(+t.toFixed(1));
+  if (a >= 0.01) return String(+t.toFixed(2));
+  return t.toExponential(0);
+}
+function linTicks(d1){
+  const s = niceStep(d1 / 5), out = [];
+  for (let v = 0; v <= d1 * (1 + 1e-9); v += s) out.push(+v.toFixed(10));
+  return out;
+}
+function logTicks(d0, d1){
+  const out = [];
+  const e0 = Math.log10(d0), e1 = Math.log10(d1);
+  for (let e = Math.floor(e0); e <= Math.ceil(e1) + 1e-9; e++) out.push(Math.pow(10, e));
+  if (out.length < 3){
+    const base = Math.pow(10, Math.floor(e0));
+    for (const m of [2, 5]){ const v = base * m; if (v >= d0 && v <= d1) out.push(v); }
+    out.sort((a, b) => a - b);
+  }
+  return out;
+}
+function drawMarker(svg, x, y, kind, color, fs){
+  fs = fs || 1;
+  if (kind === 'square') return sv('rect', {x: x - 3.4 * fs, y: y - 3.4 * fs, width: 6.8 * fs, height: 6.8 * fs, fill: color}, svg);
+  if (kind === 'tri')    return sv('path', {d: `M${x} ${y - 4.6 * fs} L${x + 4.2 * fs} ${y + 3.4 * fs} L${x - 4.2 * fs} ${y + 3.4 * fs} Z`, fill: color}, svg);
+  return sv('circle', {cx: x, cy: y, r: 3.1 * fs, fill: color}, svg);
+}
+
+// ---------- 通用 SVG 图 ----------
+function drawChart(mount, opt){
+  mount.innerHTML = '';
+  const W = opt.W || 560, H = opt.H || 330, FS = opt.fs || 1;
+  const Lm = 58 * FS, Rm = 16 * FS, T = 26 * FS, B = 44 * FS;
+  const iw = W - Lm - Rm, ih = H - T - B;
+  const n = opt.xCats.length;
+
+  let vals = [];
+  if (opt.type === 'bar'){
+    for (let i = 0; i < n; i++){ let t = 0; for (const s of opt.stacks) t += (s.vals[i] || 0); vals.push(t); }
+  } else {
+    for (const s of opt.series) vals.push(...s.vals);
+    for (const r of (opt.refH || [])) if (isFinite(r.y)) vals.push(r.y);
+  }
+  vals = vals.filter(v => v !== null && v !== undefined && isFinite(v) && (!opt.yLog || v > 0));
+  if (!vals.length || n === 0){ mount.innerHTML = '<div class="nochart">无有效数据</div>'; return; }
+
+  let d0 = 0, d1;
+  if (opt.yLog){
+    d0 = Math.pow(10, Math.floor(Math.log10(Math.min(...vals))));
+    d1 = Math.max(...vals) * 2;
+    if (d1 <= d0) d1 = d0 * 100;
+  } else {
+    d1 = niceCeil(Math.max(...vals, 1e-9));
+  }
+  const lg0 = opt.yLog ? Math.log10(d0) : 0, lg1 = opt.yLog ? Math.log10(d1) : 1;
+  const Y = v => opt.yLog ? T + ih - (Math.log10(v) - lg0) / (lg1 - lg0) * ih
+                          : T + ih - (v - d0) / (d1 - d0) * ih;
+  const X = i => n === 1 ? Lm + iw / 2 : Lm + i * iw / (n - 1);
+  const BX = i => Lm + (i + 0.5) * iw / n;   // 柱状图：按槽位居中，首尾柱不压轴
+
+  const svg = sv('svg', {viewBox: `0 0 ${W} ${H}`, class: 'chartsvg'});
+  for (const b of (opt.bands || [])){
+    const y0 = b.y0 === null || b.y0 === undefined ? d0 : b.y0;
+    const y1 = b.y1 === null || b.y1 === undefined ? d1 : b.y1;
+    let a = Y(Math.max(y0, y1)), bb = Y(Math.min(y0, y1));
+    a = Math.max(a, T); bb = Math.min(bb, T + ih);
+    sv('rect', {x: Lm, y: a, width: iw, height: Math.max(0, bb - a), fill: b.color,
+      'fill-opacity': b.op === undefined ? 0.06 : b.op}, svg);
+  }
+  const ticks = opt.yLog ? logTicks(d0, d1) : linTicks(d1);
+  for (const t of ticks){
+    const y = Y(t);
+    sv('line', {x1: Lm, x2: W - Rm, y1: y, y2: y, class: 'grid'}, svg);
+    sv('text', {x: Lm - 6, y: y + 3.5, class: 'ytick', 'text-anchor': 'end',
+      style: `font-size:${10.5 * FS}px`}, svg).textContent = tickLabel(t);
+  }
+  sv('line', {x1: Lm, x2: Lm, y1: T, y2: T + ih, class: 'axis'}, svg);
+  sv('line', {x1: Lm, x2: W - Rm, y1: T + ih, y2: T + ih, class: 'axis'}, svg);
+  const step = n > 12 ? Math.ceil(n / 12) : 1;
+  const tx = opt.type === 'bar' ? BX : X;
+  for (let i = 0; i < n; i += step)
+    sv('text', {x: tx(i), y: T + ih + 16 * FS, class: 'xtick', 'text-anchor': 'middle',
+      style: `font-size:${10.5 * FS}px`}, svg).textContent = opt.xCats[i];
+  if (step > 1 && (n - 1) % step !== 0)
+    sv('text', {x: tx(n - 1), y: T + ih + 16 * FS, class: 'xtick', 'text-anchor': 'middle',
+      style: `font-size:${10.5 * FS}px`}, svg).textContent = opt.xCats[n - 1];
+  sv('text', {x: Lm + iw / 2, y: H - 7 * FS, class: 'axlab', 'text-anchor': 'middle',
+    style: `font-size:${11 * FS}px`}, svg).textContent = opt.xTitle || 'EP（卡数）';
+  sv('text', {x: Lm, y: 12 * FS, class: 'axlab', style: `font-size:${11 * FS}px`}, svg).textContent = opt.yLabel;
+
+  for (const r of (opt.refH || [])){
+    const y = Y(r.y);
+    sv('line', {x1: Lm, x2: W - Rm, y1: y, y2: y, stroke: r.color, 'stroke-width': 1.4,
+      'stroke-dasharray': r.dash || '7 5'}, svg);
+    if (r.label) sv('text', {x: W - Rm - 4, y: y - 4, class: 'reflab', 'text-anchor': 'end', fill: r.color,
+      style: `font-size:${9.5 * FS}px`}, svg).textContent = r.label;
+  }
+
+  if (opt.type === 'bar'){
+    const bw = Math.min(42, Math.max(8, iw / n * 0.55));
+    const totals = [];
+    for (let i = 0; i < n; i++){
+      let acc = 0; const parts = [];
+      for (const s of opt.stacks){
+        const v = s.vals[i] || 0;
+        if (v > 0){
+          const yT = Y(acc + v), yB = Y(acc);
+          sv('rect', {x: BX(i) - bw / 2, y: yT, width: bw, height: Math.max(0.5, yB - yT),
+            fill: s.color, 'fill-opacity': 0.88, stroke: '#fff', 'stroke-width': 0.6}, svg);
+          acc += v;
+        }
+        parts.push(`${s.short || s.name} ${fmt(v, 1)}`);
+      }
+      totals.push(acc);
+      if (acc > 0 && (opt.totalAnnot === 'all' || (opt.totalAnnot === 'ends' && (i === 0 || i === n - 1))))
+        sv('text', {x: BX(i), y: Y(acc) - 5 * FS, class: 'ann', 'text-anchor': 'middle', fill: '#334155',
+          style: `font-size:${8.5 * FS}px`}, svg)
+          .textContent = opt.fmtTotal ? opt.fmtTotal(acc) : fmt(acc, 0);
+      const hit = sv('rect', {x: BX(i) - bw / 2 - 2, y: T, width: bw + 4, height: ih, fill: 'transparent'}, svg);
+      sv('title', {}, hit).textContent = `${opt.xTag || 'EP'}=${opt.xCats[i]} · 合计 ${fmt(acc, 1)}\n` + parts.join(' · ');
+    }
+    const mi = totals.indexOf(Math.max(...totals));
+    if (opt.peakMark && totals[mi] > 0)
+      sv('text', {x: BX(mi), y: Y(totals[mi]) - 15 * FS, class: 'ann', 'text-anchor': 'middle',
+        fill: '#b91c1c', 'font-weight': 700, style: `font-size:${8.5 * FS}px`}, svg).textContent = '↑ 峰值';
+  } else {
+    for (const s of opt.series){
+      let d = '', pen = false;
+      for (let i = 0; i < n; i++){
+        const v = s.vals[i];
+        if (v === null || v === undefined || !isFinite(v) || (opt.yLog && v <= 0)){ pen = false; continue; }
+        d += (pen ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1);
+        pen = true;
+      }
+      if (d) sv('path', {d, fill: 'none', stroke: s.color, 'stroke-width': (s.w || 2) * FS,
+        'stroke-dasharray': s.dash ? '7 5' : null,
+        'stroke-opacity': s.alpha === undefined ? 1 : s.alpha}, svg);
+      for (let i = 0; i < n; i++){
+        const v = s.vals[i];
+        if (v === null || v === undefined || !isFinite(v) || (opt.yLog && v <= 0)) continue;
+        const mk = drawMarker(svg, X(i), Y(v), s.marker || 'circle', s.color, FS);
+        sv('title', {}, mk).textContent =
+          `${s.name} · ${opt.xTag || 'EP'}=${opt.xCats[i]}：${s.tip ? s.tip(v) : fmt(v, 2)}`;
+        if (s.annotate === 'all' || (s.annotate === 'ends' && (i === 0 || i === n - 1))){
+          const dy = (s.dy === undefined ? -8 : s.dy) * FS;
+          const ty = Math.min(Math.max(Y(v) + dy, T + 10), T + ih - 4);
+          sv('text', {x: X(i), y: ty, class: 'ann', 'text-anchor': 'middle', fill: s.color,
+            style: `font-size:${8.5 * FS}px`}, svg)
+            .textContent = s.fmtA ? s.fmtA(v) : fmt(v, 1);
+        }
+      }
+    }
+  }
+  mount.appendChild(svg);
+}
+function setLegend(id, items){
+  document.getElementById(id).innerHTML = items.map(it =>
+    `<span class="lg"><i class="sw ${it.style || 'line'}" style="--c:${it.color}"></i>${it.name}</span>`).join('');
+}
+const CHART_OPTS = {};
+function chart(id, opt){
+  CHART_OPTS[id] = opt;
+  drawChart(document.getElementById(id), opt);
+}
+
+// ---------- 配置读写 / 校验 ----------
+const PRESETS = {
+  roofline: {m: 4096, k: 7168, topk: 8, f: '3072,4096,8192', cube: 410.4,
+    hccs: 247.8, rack: 141.6, cage: 141.6, rn: 8, rr: 8,
+    eps: '8,16,32,64,128,256,512,1024', mode: 'layer'},
+  epprobe: {m: 4096, k: 7168, topk: 8, f: '3072,8192', cube: 410.4,
+    hccs: 784, rack: 80, cage: 15, rn: 8, rr: 8,
+    eps: '8,16,32,64,128,256,320', mode: 'layer'}
+};
+function num(id){ const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? null : v; }
+function readCfg(){
+  const cfg = {
+    m: num('in-m'), k: num('in-k'), topk: num('in-topk'),
+    fList: parseList($('#in-f').value),
+    cube: num('in-cube'),
+    bwHccs: num('in-hccs'), bwRack: num('in-rack'), bwCage: num('in-cage'),
+    rn: num('in-rn'), rr: num('in-rr'),
+    eps: parseList($('#in-eps').value),
+    mode: $('#segMode .active').dataset.v
+  };
+  cfg.coef = cfg.mode === 'bwd' ? 16 : 22;
+  cfg.fList = [...new Set(cfg.fList)].sort((a, b) => a - b);
+  cfg.eps = [...new Set(cfg.eps)].sort((a, b) => a - b);
+  return cfg;
+}
+function validate(cfg){
+  const e = [];
+  if (!(cfg.m >= 1)) e.push('M 需为 ≥1 的整数');
+  if (!(cfg.k >= 1)) e.push('K 需为 ≥1 的整数');
+  if (!(cfg.topk >= 1)) e.push('topK 需为 ≥1 的整数');
+  if (!cfg.fList.length) e.push('F 列表为空（逗号分隔的正整数，如 3072,4096,8192）');
+  if (!(cfg.cube > 0)) e.push('cube TFLOPS 需 > 0');
+  if (!(cfg.bwHccs > 0)) e.push('HCCS 带宽需 > 0');
+  if (!(cfg.bwRack > 0)) e.push('柜内带宽需 > 0');
+  if (!(cfg.bwCage > 0)) e.push('跨柜带宽需 > 0');
+  if (!(cfg.rn >= 1)) e.push('R_node 需 ≥ 1');
+  if (!(cfg.rr >= 1)) e.push('R_rack 需 ≥ 1');
+  if (!cfg.eps.length) e.push('EP 列表为空');
+  else if (!cfg.eps.some(v => v % cfg.rn === 0 && v >= cfg.rn))
+    e.push(`没有有效的 EP 点（必须是 ${cfg.rn} 的整数倍且 ≥ ${cfg.rn}）`);
+  return e;
+}
+function applyCfgToInputs(c){
+  $('#in-m').value = c.m; $('#in-k').value = c.k; $('#in-topk').value = c.topk;
+  $('#in-f').value = c.f; $('#in-cube').value = c.cube;
+  $('#in-hccs').value = c.hccs; $('#in-rack').value = c.rack; $('#in-cage').value = c.cage;
+  $('#in-rn').value = c.rn; $('#in-rr').value = c.rr; $('#in-eps').value = c.eps;
+  document.querySelectorAll('#segMode button').forEach(b =>
+    b.classList.toggle('active', b.dataset.v === c.mode));
+}
+
+// ---------- 主渲染 ----------
+let LAST = null;   // 最近一次成功渲染的 {cfg, rows, commRows, skipped}
+let rt = null;
+
+function render(){
+  const cfg = readCfg();
+  const errs = validate(cfg);
+  const errBox = $('#err');
+  if (errs.length){
+    errBox.style.display = 'block';
+    errBox.textContent = '⚠ 配置有误：' + errs.join('；');
+    return;
+  }
+  errBox.style.display = 'none';
+
+  const { rows, commRows, skipped } = modelAnalyze(cfg);
+  LAST = { cfg, rows, commRows, skipped };
+
+  const fs = cfg.fList, eps = commRows.map(c => String(c.ep));
+  const fColor = {}; fs.forEach((f, i) => fColor[f] = PALETTE[i % PALETTE.length]);
+  const ofF = (f, key) => rows.filter(r => r.f === f).map(r => r[key]);
+  const totalMB = cfg.m * cfg.topk * cfg.k * 2 / 1e6;
+  const modeName = cfg.mode === 'bwd' ? '仅反向 (16RFK + 4趟)' : '整层 (22RFK + 4趟)';
+
+  // ---- echo ----
+  let echo = `[config] M=${cfg.m} K=${cfg.k} topK=${cfg.topk} · 口径=${modeName} · cube=${cfg.cube} TFLOPS\n` +
+    `BW(单向): HCCS=${cfg.bwHccs} / 柜内=${cfg.bwRack} / 跨柜=${cfg.bwCage} GB/s · ` +
+    `R_node=${cfg.rn} R_rack=${cfg.rr} · 每向毛流量 ${fmt(totalMB, 1)} MB/rank`;
+  if (skipped.length)
+    echo += `\n[skip] EP=${skipped.join(',')} 不是 ${cfg.rn} 的整数倍（或 < ${cfg.rn}），已跳过`;
+  $('#echo').innerHTML = echo.replace(/\n/g, '<br>')
+    .replace('[skip]', '<span class="warn">[skip]</span>');
+
+  // ---- KPI ----
+  const R = cfg.m * cfg.topk;
+  const cMin = cfg.coef * R * Math.min(...fs) * cfg.k / (cfg.cube * 1e12) * 1e3;
+  const cMax = cfg.coef * R * Math.max(...fs) * cfg.k / (cfg.cube * 1e12) * 1e3;
+  const tSingle = totalMB * (cfg.rn - 1) / cfg.rn / cfg.bwHccs * 4;
+  let best = rows[0];
+  for (const r of rows) if (r.speedup > best.speedup) best = r;
+  $('#kpis').innerHTML = [
+    { l: '每 rank 每向毛流量', v: `${fmt(totalMB, 1)}<small> MB</small>`, s: 'M × topK × K × 2B（BF16）' },
+    { l: `计算地板（${cfg.coef}RFK）`, v: `${fmt(cMin, 1)}–${fmt(cMax, 1)}<small> ms/层</small>`,
+      s: `@ ${cfg.cube} TFLOPS · F=${Math.min(...fs)}–${Math.max(...fs)}` },
+    { l: `单节点通信地板（EP=${cfg.rn}）`, v: `${fmt(tSingle, 2)}<small> ms/层</small>`, s: '纯 HCCS 腿 × 4 趟' },
+    { l: '最佳融合加速上限', v: `${best.speedup.toFixed(2)}<small>x</small>`,
+      s: `F=${best.f} @ EP=${best.ep} · N:C ${best.ncRatio === null ? '∞' : best.ncRatio.toFixed(2)}` }
+  ].map(k => `<div class="kpi"><div class="kl">${k.l}</div><div class="kv">${k.v}</div><div class="ks">${k.s}</div></div>`).join('');
+
+  // ---- 图 1：计算 vs 通信竞速 ----
+  const compSeries = fs.map(f => ({
+    name: `计算 ${cfg.coef}RFK · F=${f}`, color: fColor[f], dash: true,
+    vals: ofF(f, 'tCompute'), annotate: 'ends', fmtA: v => fmt(v, 1)
+  }));
+  const commSeries = {
+    name: '通信（4 趟，与 F 无关）', color: LEG_COLORS.comm, marker: 'square',
+    vals: commRows.map(c => c.tComm), annotate: 'ends', dy: 14, fmtA: v => fmt(v, 1)
+  };
+  chart('ch1', { xCats: eps, yLabel: 'ms / 层', series: [...compSeries, commSeries] });
+  setLegend('lg1', [
+    ...fs.map(f => ({name: `计算 ${cfg.coef}RFK · F=${f}`, color: fColor[f], style: 'dash'})),
+    {name: '通信 4 趟（各 F 共用）', color: LEG_COLORS.comm, style: 'line'}
+  ]);
+
+  // ---- 图 2：融合加速上限 ----
+  chart('ch2', {
+    xCats: eps, yLabel: '加速上限',
+    series: fs.map(f => ({ name: `F=${f}`, color: fColor[f], vals: ofF(f, 'speedup'),
+      annotate: 'all', fmtA: v => v.toFixed(2) + 'x', tip: v => v.toFixed(3) + 'x' })),
+    refH: [
+      { y: 1.0, color: '#9ca3af', dash: '2 3' },
+      { y: 2.0, color: '#ef4444', label: '理论极限 2.0x' }
+    ],
+    bands: [{ y0: 1, y1: 2, color: '#22c55e', op: 0.07 }]
+  });
+  setLegend('lg2', fs.map(f => ({name: `F=${f}`, color: fColor[f]})));
+
+  // ---- 图 3：N:C 比值 / 状态图 ----
+  chart('ch3', {
+    xCats: eps, yLabel: '通信 : 计算 (N:C)',
+    series: fs.map(f => ({ name: `F=${f}`, color: fColor[f], vals: ofF(f, 'ncRatio'),
+      annotate: 'ends', fmtA: v => v.toFixed(2) + 'x', tip: v => v.toFixed(3) + 'x' })),
+    refH: [{ y: 1.0, color: '#ef4444', label: 'N = C 甜点（上限 2x）' }],
+    bands: [
+      { y0: null, y1: 1, color: '#3b82f6', op: 0.05 },
+      { y0: 1, y1: null, color: '#ef4444', op: 0.05 }
+    ]
+  });
+  setLegend('lg3', [
+    ...fs.map(f => ({name: `F=${f}`, color: fColor[f]})),
+    {name: '下方 = 计算受限', color: '#3b82f6', style: 'box'},
+    {name: '上方 = 通信受限', color: '#ef4444', style: 'box'}
+  ]);
+
+  // ---- 图 4：绝对耗时 ----
+  const tSeries = [];
+  for (const f of fs){
+    tSeries.push({ name: `串行小算子 F=${f}`, color: fColor[f], dash: true, alpha: 0.65,
+      vals: ofF(f, 'tSmallop'), annotate: 'ends', dy: 14, fmtA: v => fmt(v, 1) });
+    tSeries.push({ name: `理想融合 F=${f}`, color: fColor[f], marker: 'square',
+      vals: ofF(f, 'tIdeal'), annotate: 'ends', fmtA: v => fmt(v, 1) });
+  }
+  chart('ch4', { xCats: eps, yLabel: 'ms / 层', series: tSeries });
+  setLegend('lg4', [
+    ...fs.map(f => ({name: `串行 F=${f}`, color: fColor[f], style: 'dash'})),
+    ...fs.map(f => ({name: `理想 F=${f}`, color: fColor[f]}))
+  ]);
+
+  // ---- 图 5：各腿耗时（对数） ----
+  chart('ch5', {
+    xCats: eps, yLabel: 'ms / 每向（对数）', yLog: true,
+    series: [
+      { name: '节点内 HCCS', color: LEG_COLORS.node, vals: commRows.map(c => c.tNode) },
+      { name: '柜内', color: LEG_COLORS.rack, vals: commRows.map(c => c.tRack) },
+      { name: '跨柜', color: LEG_COLORS.cage, vals: commRows.map(c => c.tCage) },
+      { name: '每向 = max', color: LEG_COLORS.way, marker: 'tri', w: 2.4,
+        vals: commRows.map(c => c.tWay), annotate: 'ends', fmtA: v => fmt(v, 2) }
+    ]
+  });
+  setLegend('lg5', [
+    {name: '节点内 HCCS', color: LEG_COLORS.node},
+    {name: '柜内', color: LEG_COLORS.rack},
+    {name: '跨柜', color: LEG_COLORS.cage},
+    {name: '每向 = max（瓶颈腿）', color: LEG_COLORS.way}
+  ]);
+
+  // ---- 图 6：流量拆分（堆叠柱） ----
+  chart('ch6', {
+    xCats: eps, yLabel: 'MB / 每向 / rank', type: 'bar', totalAnnot: 'ends',
+    stacks: [
+      { name: '节点内 HCCS', short: 'HCCS', color: LEG_COLORS.node, vals: commRows.map(c => c.mbNode) },
+      { name: '柜内', short: '柜内', color: LEG_COLORS.rack, vals: commRows.map(c => c.mbRack) },
+      { name: '跨柜', short: '跨柜', color: LEG_COLORS.cage, vals: commRows.map(c => c.mbCage) }
+    ]
+  });
+  setLegend('lg6', [
+    {name: '节点内 HCCS', color: LEG_COLORS.node, style: 'box'},
+    {name: '柜内', color: LEG_COLORS.rack, style: 'box'},
+    {name: '跨柜', color: LEG_COLORS.cage, style: 'box'}
+  ]);
+  renderMfu();
+
+  // ---- 数据表 ----
+  $('#rowcnt').textContent = String(rows.length);
+  const COLS = [
+    ['ep', 'EP'], ['nodes', '节点'], ['racks', '机柜'], ['f', 'F'], ['bottleneck', '瓶颈'],
+    ['mbNode', 'MB·HCCS'], ['mbRack', 'MB·柜内'], ['mbCage', 'MB·跨柜'],
+    ['tNode', 't节点 ms'], ['tRack', 't柜内 ms'], ['tCage', 't跨柜 ms'],
+    ['tWay', 'T/向 ms'], ['tComm', 'T/层 ms'],
+    ['tCompute', `计算 ms`], ['tSmallop', '串行 ms'], ['tIdeal', '理想 ms'],
+    ['speedup', '上限'], ['overlapPct', '重叠%'], ['ncRatio', 'N:C'], ['regime', '状态']
+  ];
+  const cell = (k, r) => {
+    switch (k){
+      case 'bottleneck': return `<span class="b b-${r[k]}">${r[k]}</span>`;
+      case 'speedup': return r[k].toFixed(2) + 'x';
+      case 'overlapPct': return r[k].toFixed(0) + '%';
+      case 'ncRatio': return r[k] === null ? '∞' : r[k].toFixed(2) + 'x';
+      case 'regime': return r[k] === 'compute-bound'
+        ? '<span class="r r-cb">计算受限</span>' : '<span class="r r-mb">通信受限</span>';
+      case 'ep': case 'nodes': case 'racks': case 'f': return String(r[k]);
+      case 'tNode': case 'tRack': case 'tCage': case 'tWay': return fmt(r[k], 2);
+      case 'tComm': case 'tCompute': case 'tSmallop': case 'tIdeal': return fmt(r[k], 1);
+      default: return fmt(r[k], 1);
+    }
+  };
+  let prevEp = null, body = '';
+  for (const r of rows){
+    const cls = [r === best ? 'best' : '', r.ep !== prevEp ? 'epnew' : ''].filter(Boolean).join(' ');
+    prevEp = r.ep;
+    body += `<tr class="${cls}" ${r === best ? 'title="最佳融合加速上限"' : ''}>` +
+      COLS.map(([k]) => `<td class="${['ep','nodes','racks','f','bottleneck','regime'].includes(k) ? '' : 'num'}">${cell(k, r)}</td>`).join('') + '</tr>';
+  }
+  $('#tbl').innerHTML = '<thead><tr>' + COLS.map(([, h]) => `<th>${h}</th>`).join('') +
+    '</tr></thead><tbody>' + body + '</tbody>';
+
+  writeHash(cfg);
+}
+
+// ---------- 实测 MFU：FLOPs = coef·R·F·K（与 modelAnalyze 同口径），C/N 复用同一模型 ----------
+function renderMfu(){
+  const box = document.getElementById('mfuKpis');
+  const cfg = readCfg();
+  if (!(cfg.cube > 0) || !cfg.fList.length){ box.innerHTML = ''; return; }
+  const fsel = document.getElementById('in-mfu-f');
+  const curF = fsel.value;
+  fsel.innerHTML = cfg.fList.map(f => `<option value="${f}">F=${f}</option>`).join('');
+  fsel.value = cfg.fList.includes(+curF) ? curF : String(cfg.fList[Math.floor(cfg.fList.length / 2)]);
+  const f = +fsel.value || cfg.fList[0];
+  const ep = parseInt(document.getElementById('in-mfu-ep').value, 10);
+  const ms = parseFloat(document.getElementById('in-mfu-ms').value);
+  const R = cfg.m * cfg.topk;
+  const flops = cfg.coef * R * f * cfg.k;                       // FLOP / 次
+  const cMs = flops / (cfg.cube * 1e12) * 1e3;                  // 计算地板（= tCompute）
+  const row = modelAnalyze(Object.assign({}, cfg, { eps: [ep] })).rows.find(r => r.f === f);
+  const nMs = row ? row.tComm : null;
+  const tIdeal = nMs === null ? null : Math.max(cMs, nMs);
+  const tSerial = nMs === null ? null : cMs + nMs;
+  const mfu = ms > 0 ? flops / (ms * 1e-3) / 1e12 / cfg.cube * 100 : null;
+  const tf = ms > 0 ? flops / (ms * 1e-3) / 1e12 : null;
+  const fmt1 = x => x === null || x === undefined || !isFinite(x) ? '–' : (x >= 100 ? x.toFixed(1) : x.toFixed(2));
+  const cards = [
+    { l: '实测 MFU', v: mfu === null ? '–' : `${mfu.toFixed(1)}<small>%</small>`,
+      s: mfu === null ? '输入实测耗时后计算' :
+        `achieved ${tf.toFixed(1)} TFLOPS / peak ${cfg.cube} · 瓶颈${row.regime === 'compute-bound' ? '计算' : '通信'}（N:C=${row.ncRatio === null ? '–' : row.ncRatio.toFixed(2)}）` },
+    { l: '计算地板 C', v: `${fmt1(cMs)}<small> ms</small>`,
+      s: `${cfg.coef}·R·F·K = ${(flops / 1e12).toFixed(2)} TFLOP @ ${cfg.cube} TFLOPS` },
+    { l: `通信 N @ EP${isNaN(ep) ? '–' : ep}`, v: `${fmt1(nMs)}<small> ms</small>`,
+      s: row ? `瓶颈 ${row.bottleneck} · 4 趟 × ${row.tWay.toFixed(2)} ms` : 'EP 需 ≥ 节点内卡数且为其整数倍' },
+    { l: '融合上限 max(C,N)', v: `${fmt1(tIdeal)}<small> ms</small>`,
+      s: ms > 0 && tIdeal
+        ? `实测/上限 ×${(ms / tIdeal).toFixed(2)} · 串行 C+N ${fmt1(tSerial)} ms（×${(ms / tSerial).toFixed(2)}）`
+        : `串行 C+N ${fmt1(tSerial)} ms · 重叠率 ${row ? row.overlapPct.toFixed(0) : '–'}%` },
+  ];
+  box.innerHTML = cards.map(k =>
+    `<div class="kpi"><div class="kl">${k.l}</div><div class="kv">${k.v}</div><div class="ks">${k.s}</div></div>`).join('');
+}
+
+// ---------- URL hash（分享/收藏配置） ----------
+function writeHash(cfg){  const p = new URLSearchParams({
+    m: cfg.m, k: cfg.k, topk: cfg.topk, f: cfg.fList.join(','),
+    cube: cfg.cube, hccs: cfg.bwHccs, rack: cfg.bwRack, cage: cfg.bwCage,
+    rn: cfg.rn, rr: cfg.rr, eps: cfg.eps.join(','), mode: cfg.mode
+  });
+  try { history.replaceState(null, '', '#' + p.toString()); } catch (e) { /* file:// 某些浏览器限制，忽略 */ }
+}
+function readHash(){
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (!p.get('m') && !p.get('eps')) return false;
+  applyCfgToInputs({
+    m: p.get('m') || 4096, k: p.get('k') || 7168, topk: p.get('topk') || 8,
+    f: p.get('f') || '3072,4096,8192', cube: p.get('cube') || 410.4,
+    hccs: p.get('hccs') || 247.8, rack: p.get('rack') || 141.6, cage: p.get('cage') || 141.6,
+    rn: p.get('rn') || 8, rr: p.get('rr') || 8,
+    eps: p.get('eps') || '8,16,32,64,128,256,512,1024',
+    mode: p.get('mode') === 'bwd' ? 'bwd' : 'layer'
+  });
+  return true;
+}
+
+// ---------- 导出 / 复制 ----------
+function toast(msg){
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._h);
+  toast._h = setTimeout(() => t.classList.remove('show'), 1600);
+}
+async function copyText(s){
+  try { await navigator.clipboard.writeText(s); toast('已复制到剪贴板'); }
+  catch (e){
+    const ta = document.createElement('textarea');
+    ta.value = s; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('已复制到剪贴板'); }
+    catch (e2){ toast('复制失败，请手动复制'); }
+    ta.remove();
+  }
+}
+function exportCSV(){
+  if (!LAST) return;
+  const { cfg, rows } = LAST;
+  const cols = [
+    ['ep','ep'],['nodes','nodes'],['racks','racks'],['f','f'],['bottleneck','bottleneck'],
+    ['mbNode','mb_node'],['mbRack','mb_rack'],['mbCage','mb_cage'],
+    ['tNode','t_node'],['tRack','t_rack'],['tCage','t_cage'],['tWay','t_way'],['tComm','t_comm'],
+    ['tCompute','t_compute'],['tSmallop','t_smallop'],['tIdeal','t_ideal'],
+    ['speedup','speedup_ceil'],['overlapPct','overlap_pct'],['ncRatio','nc_ratio'],['regime','regime']
+  ];
+  const lines = [cols.map(([, h]) => h).join(',')];
+  for (const r of rows)
+    lines.push(cols.map(([k]) => {
+      let v = r[k];
+      if (k === 'ncRatio' && v === null) v = 'inf';
+      return typeof v === 'number' ? +v.toPrecision(10) : v;
+    }).join(','));
+  const blob = new Blob(['\ufeff' + lines.join('\n')], {type: 'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `moe_roofline_M${cfg.m}_K${cfg.k}_topk${cfg.topk}_${cfg.coef}rfk.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast(`已导出 ${rows.length} 行 CSV`);
+}
+function pyCli(){
+  if (!LAST) return '';
+  const c = LAST.cfg;
+  let s = `python test/bigop_fused/roofline_probe.py --m ${c.m} --k ${c.k} --topk ${c.topk}` +
+    ` --f ${c.fList.join(',')} --cube-tflops ${c.cube}` +
+    ` --bw-hccs ${c.bwHccs} --bw-rack ${c.bwRack} --bw-cage ${c.bwCage}` +
+    ` --r-node ${c.rn} --r-rack ${c.rr} --eps ${c.eps.join(',')}`;
+  if (c.mode === 'bwd')
+    s += '   # 注意：仅反向(16RFK)口径需把脚本里 22.0 改为 16.0';
+  return s;
+}
+
+// ---------- 显存分析 Tab ----------
+const GiB = 1024 ** 3, GB = 1e9;
+const LIFE = {
+  saved: ['保存 → backward', 'lt-saved'], disp: ['dispatch 输出（retain=True 驻留）', 'lt-shmem'],
+  trans: ['前向临时（返回即释放）', 'lt-trans'],
+  bwd: ['反向临时', 'lt-bwd'], shmem: ['SHMEM 常驻', 'lt-shmem'],
+  w: ['权重常驻', 'lt-w'], io: ['输入/输出', 'lt-io'],
+};
+const VAR_NAME = { normal: '普通 BF16', mgroup: 'MGroup', udma: 'UDMA' };
+function humanBytes(b){
+  if (b === null || b === undefined || !isFinite(b)) return '–';
+  const u = [[1024**4,'TiB'],[1024**3,'GiB'],[1024**2,'MiB'],[1024,'KiB'],[1,'B']];
+  for (const [f, s] of u) if (Math.abs(b) >= f){ const v = b / f; return v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2) + ' ' + s; }
+  return b + ' B';
+}
+function readMemCfg(){
+  const num = id => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? null : v; };
+  const av = document.querySelector('#segVar .active');
+  const sv = document.querySelector('#segSave .active');
+  let saveMode = sv && sv.dataset && sv.dataset.v ? sv.dataset.v : 'bf16';
+  const clipMasks = saveMode === 'mxfp8clip';
+  if (saveMode === 'mxfp8clip') saveMode = 'mxfp8';
+  return { m: num('mm-m'), k: num('mm-k'), f: num('mm-f'), n: num('mm-f') === null ? null : 2 * num('mm-f'),
+    topk: num('mm-topk'),
+    ep: num('mm-ep'), epr: num('mm-epr'), r: num('mm-r'), hbm: num('mm-hbm'),
+    saveMode, clipMasks,
+    variant: av && av.dataset && av.dataset.v ? av.dataset.v : 'normal' };
+}
+function validateMem(c){
+  const e = [];
+  if (!(c.m >= 1)) e.push('M 需 ≥ 1');
+  if (!(c.k >= 1)) e.push('K 需 ≥ 1');
+  if (!(c.f >= 1)) e.push('F 需 ≥ 1（SwiGLU 中间宽；N = 2F）');
+  if (!(c.topk >= 1)) e.push('topK 需 ≥ 1');
+  if (!(c.ep >= 1)) e.push('EP 需 ≥ 1');
+  if (!(c.epr >= 1)) e.push('EPR 需 ≥ 1');
+  if (!(c.r >= 1)) e.push('R 需 ≥ 1');
+  if (!(c.hbm > 0)) e.push('HBM 需 > 0');
+  return e;
+}
+function applyMemInputs(c){
+  $('#mm-m').value = c.m; $('#mm-k').value = c.k; $('#mm-f').value = c.f; $('#mm-topk').value = c.topk;
+  $('#mm-ep').value = c.ep; $('#mm-epr').value = c.epr; $('#mm-r').value = c.r; $('#mm-hbm').value = c.hbm;
+  document.querySelectorAll('#segVar button').forEach(b =>
+    b.classList.toggle('active', b.dataset.v === c.variant));
+  const sm = c.saveMode === 'mxfp8' && c.clipMasks ? 'mxfp8clip' : (c.saveMode || 'bf16');
+  document.querySelectorAll('#segSave button').forEach(b =>
+    b.classList.toggle('active', b.dataset.v === sm));
+}
+function writeMemHash(c){
+  const sv = c.saveMode === 'mxfp8' && c.clipMasks ? 'mxfp8clip' : c.saveMode;
+  const p = new URLSearchParams({ tab: 'mem', m: c.m, k: c.k, f: c.f, topk: c.topk,
+    ep: c.ep, epr: c.epr, r: c.r, hbm: c.hbm, v: c.variant, sv });
+  try { history.replaceState(null, '', '#' + p.toString()); } catch (e) { /* file:// 限制 */ }
+}
+let mrt = null;
+const SAVE_NAME = { none: 'gate/up 重算', bf16: '保存 BF16', mxfp8: '保存 MXFP8' };
+function renderMemory(){
+  const c = readMemCfg();
+  const errs = validateMem(c);
+  const errBox = $('#memErr');
+  if (errs.length){
+    errBox.style.display = 'block';
+    errBox.textContent = '⚠ 配置有误：' + errs.join('；');
+    return;
+  }
+  errBox.style.display = 'none';
+  const L = memModel(c);
+  const hbmBytes = c.hbm * GB;
+  const pk = L.phases[2];
+  const peakTotal = pk.saved + pk.trans + pk.bwd + pk.shmem + pk.w + pk.io + pk.disp;
+  const util = peakTotal / hbmBytes * 100;
+  const maxB = Math.max(0, Math.floor((hbmBytes - L.resident) / L.perBatch));
+  const savedGU = c.saveMode !== 'none';
+  const extBytes = L.savedT - L.legacySavedT;
+  const modeName = SAVE_NAME[c.saveMode] + (c.saveMode === 'mxfp8' && c.clipMasks ? '+掩码' : '');
+  const dm = $('#decideMode');
+  if (dm) dm.textContent = `当前：${VAR_NAME[c.variant]} · ${modeName}`;
+
+  // R 容量提示
+  const warn = $('#memWarn');
+  const rBalanced = Math.floor(c.m) * Math.floor(c.topk);
+  if (c.r < rBalanced){
+    warn.style.display = 'block';
+    warn.textContent = `⚠ maxRecvTokens=${c.r} 低于均衡接收行数 M·topK=${rBalanced}：packed X 容量可能不足（默认口径 ≥ M·T）`;
+  } else warn.style.display = 'none';
+
+  // ---- KPI ----
+  const pf = L.phases[0];
+  const fwdTotal = pf.saved + pf.trans + pf.shmem + pf.w + pf.io + pf.disp;
+  const metaBytes = L.savedT - extBytes + L.routedWBytes;
+  const SHMEM_COLORS = ['#c026d3', '#f59e0b', '#2563eb', '#10b981', '#0ea5e9', '#8b5cf6'];
+  $('#memKpis').innerHTML = [
+    { l: '前向显存峰值 / rank', v: humanBytes(fwdTotal),
+      s: `HBM 利用率 ${(fwdTotal / hbmBytes * 100).toFixed(1)}% · 各块颜色同图 M1`,
+      brk: [
+        { name: 'saved', bytes: pf.saved, color: '#2563eb' },
+        ...(pf.disp ? [{ name: 'dispatch 输出', bytes: pf.disp, color: '#6366f1' }] : []),
+        { name: '前向 transient', bytes: pf.trans, color: '#94a3b8' },
+        { name: 'SHMEM 窗口', bytes: pf.shmem, color: '#c026d3' },
+        { name: '权重 W1+W2', bytes: pf.w, color: '#10b981' },
+        { name: 'IO（x/topk/y）', bytes: pf.io, color: '#0ea5e9' },
+      ], brkT: fwdTotal },
+    { l: '反向显存峰值 / rank', v: humanBytes(peakTotal),
+      s: `HBM 利用率 ${util.toFixed(1)}% · 各块颜色同图 M1`,
+      brk: [
+        { name: 'saved', bytes: pk.saved, color: '#2563eb' },
+        ...(pk.disp ? [{ name: 'dispatch 输出', bytes: pk.disp, color: '#6366f1' }] : []),
+        ...(pk.trans ? [{ name: '前向 transient', bytes: pk.trans, color: '#94a3b8' }] : []),
+        { name: '反向 workspace', bytes: pk.bwd, color: '#f59e0b' },
+        { name: 'SHMEM 窗口', bytes: pk.shmem, color: '#c026d3' },
+        { name: '权重', bytes: pk.w, color: '#10b981' },
+        ...(pk.io ? [{ name: 'IO/梯度', bytes: pk.io, color: '#0ea5e9' }] : []),
+      ], brkT: peakTotal },
+    { l: 'SHMEM 额度（= local_mem_size）', v: humanBytes(L.shmRecommended),
+      s: '= Align2MiB(布局需要量) · 额度不足报错里的 need 就是它',
+      brk: L.shmem.map((r, i) => ({ name: r.name, bytes: r.bytes, color: SHMEM_COLORS[i % SHMEM_COLORS.length] })),
+      brkT: L.shmT },
+    { l: '前向保存 → 反向使用（saved + dispatch 输出）', v: humanBytes(L.savedT + L.dispatchOutT),
+      s: c.variant === 'normal'
+        ? '每个未反传 micro-batch 一份；packed X 为独立 dispatch 输出，由 retain_dispatch_output 控制：True（默认）驻留，False 释放但重派发反向未集成（backward 会报错）'
+        : c.variant === 'mgroup'
+          ? '每个未反传 micro-batch 一份（MGroup 前向仍把 packed X 嵌在 saved 内）'
+          : '每个未反传 micro-batch 一份；packed X / routed 权重已在 SHMEM 窗（ptrA1 / routed 行）',
+      brk: [
+        ...(L.packedXBytes ? [{ name: c.variant === 'normal' ? 'packed X（dispatch 输出·可释放）' : 'packed X（saved 内嵌）',
+          bytes: L.packedXBytes, color: '#6366f1' }] : []),
+        ...(savedGU ? [{ name: `gate/up ${modeName}`, bytes: extBytes, color: '#7c3aed' }] : []),
+        { name: '元数据+routed', bytes: Math.max(0, L.savedT + L.dispatchOutT - L.packedXBytes - (savedGU ? extBytes : 0)), color: '#94a3b8' },
+      ], brkT: L.savedT + L.dispatchOutT },
+  ].map(k => {
+    const segs = (k.brk || []).filter(b => b.bytes > 0);
+    return `<div class="kpi"><div class="kl">${k.l}</div><div class="kv">${k.v}</div>` +
+      (segs.length ? `<div class="kbar">${segs.map(b =>
+        `<div class="kbar-seg" style="width:${(b.bytes / k.brkT * 100).toFixed(2)}%;background:${b.color}" title="${b.name} ${humanBytes(b.bytes)}"></div>`).join('')}</div>` +
+        `<div class="kbrk">${segs.map(b =>
+        `<span><i style="background:${b.color}"></i>${b.name} <b>${humanBytes(b.bytes)}</b></span>`).join('')}</div>` : '') +
+      `<div class="ks">${k.s}</div></div>`;
+  }).join('');
+
+  // ---- 图 M1：阶段驻留堆叠 ----
+  const g = x => +(x / GiB).toFixed(3);
+  const peakGiB = g(pk.saved + pk.trans + pk.bwd + pk.shmem + pk.w + pk.io + pk.disp);
+  chart('m1', {
+    xCats: L.phases.map(p => p.name), yLabel: 'GiB / rank', type: 'bar', totalAnnot: 'all',
+    W: 1100, H: 380, fs: 1.15, xTitle: '训练阶段（每 rank）', xTag: '阶段', peakMark: true,
+    fmtTotal: v => v.toFixed(1) + ' GiB' +
+      (Math.abs(v - peakGiB) < 1e-6 ? ` · ${(v * GiB / hbmBytes * 100).toFixed(0)}% HBM` : ''),
+    stacks: [
+      { name: '持久 saved', short: 'saved', color: '#2563eb', vals: L.phases.map(p => g(p.saved)) },
+      { name: 'dispatch 输出', short: 'dispatch', color: '#6366f1', vals: L.phases.map(p => g(p.disp)) },
+      { name: '前向 transient', short: 'transient', color: '#94a3b8', vals: L.phases.map(p => g(p.trans)) },
+      { name: '反向 workspace', short: '反向ws', color: '#f59e0b', vals: L.phases.map(p => g(p.bwd)) },
+      { name: 'SHMEM 窗口(按需)', short: 'SHMEM', color: '#c026d3', vals: L.phases.map(p => g(p.shmem)) },
+      { name: '权重 W1+W2', short: '权重', color: '#10b981', vals: L.phases.map(p => g(p.w)) },
+      { name: 'IO / 梯度', short: 'IO', color: '#0ea5e9', vals: L.phases.map(p => g(p.io)) },
+    ]
+  });
+  setLegend('lm1', [
+    { name: '持久 saved', color: '#2563eb', style: 'box' },
+    { name: 'dispatch 输出', color: '#6366f1', style: 'box' },
+    { name: '前向 transient', color: '#94a3b8', style: 'box' },
+    { name: '反向 workspace', color: '#f59e0b', style: 'box' },
+    { name: 'SHMEM 窗口(按需)', color: '#c026d3', style: 'box' },
+    { name: '权重 W1+W2', color: '#10b981', style: 'box' },
+    { name: 'IO / 梯度', color: '#0ea5e9', style: 'box' },
+  ]);
+
+  // ---- 图 M2：in-flight micro-batch ----
+  const ns = [];
+  for (let i = 1; i <= 10; i++) ns.push(i);
+  chart('m2', {
+    xCats: ns.map(String), yLabel: 'GiB / rank', xTitle: '未反传 micro-batch 数', xTag: 'n',
+    series: [{ name: '稳态驻留 = 常驻 + n×每batch', color: '#2563eb',
+      vals: ns.map(n => g(L.resident + n * L.perBatch)),
+      annotate: 'all', fmtA: v => v.toFixed(1), tip: v => v.toFixed(2) + ' GiB' }],
+    refH: [{ y: hbmBytes / GiB, color: '#ef4444', label: `HBM ${c.hbm} GB（可驻留 ${maxB} 份）` }]
+  });
+  setLegend('lm2', [{ name: '稳态驻留 = 常驻(SHMEM+权重) + n×每batch(saved+dispatch+ctx)', color: '#2563eb' }]);
+
+  // ---- 图 M3：R 扫描 ----
+  const rBase = Math.max(1, Math.floor(c.m) * Math.floor(c.topk));
+  const rvals = [...new Set([Math.max(1, Math.ceil(rBase / 4)), Math.ceil(rBase / 2), rBase, 2 * rBase, 4 * rBase])];
+  const per = rvals.map(rv => memModel(Object.assign({}, c, { r: rv })));
+  chart('m3', {
+    xCats: rvals.map(String), yLabel: 'GiB / rank', xTitle: 'maxRecvTokens', xTag: 'R',
+    series: [
+      { name: '持久 saved', color: '#2563eb', vals: per.map(x => g(x.savedT)) },
+      { name: 'dispatch 输出', color: '#6366f1', dash: true, vals: per.map(x => g(x.dispatchOutT)) },
+      { name: '前向 transient', color: '#94a3b8', dash: true, vals: per.map(x => g(x.transT)) },
+      { name: '反向 workspace', color: '#f59e0b', vals: per.map(x => g(x.bwdT)) },
+      { name: 'SHMEM 窗口(按需)', color: '#c026d3', dash: true, vals: per.map(x => g(x.shmRecommended)) },
+      { name: '反向峰值合计', color: '#111827', marker: 'square', w: 2.4,
+        vals: per.map(x => { const p = x.phases[2]; return g(p.saved + p.bwd + p.shmem + p.w + p.io + p.disp); }),
+        annotate: 'ends', fmtA: v => v.toFixed(1) },
+    ]
+  });
+  setLegend('lm3', [
+    { name: '持久 saved', color: '#2563eb' }, { name: 'dispatch 输出', color: '#6366f1', style: 'dash' },
+    { name: '前向 transient', color: '#94a3b8', style: 'dash' },
+    { name: '反向 workspace', color: '#f59e0b' }, { name: 'SHMEM 窗口(按需)', color: '#c026d3', style: 'dash' },
+    { name: '反向峰值合计', color: '#111827' },
+  ]);
+
+  // ---- 保存 vs 重算 决策表 ----
+  const recomputeRows = L.backward.filter(r => r.name.indexOf('ptrRecompute') === 0);
+  const recBytes = recomputeRows.reduce((x, r) => x + r.bytes, 0);
+  const scaleBytes = L.saved.filter(r => r.name.indexOf('scale') >= 0 || r.name.indexOf('位平面') >= 0)
+    .reduce((x, r) => x + r.bytes, 0);
+  const dispNote = c.variant === 'normal'
+    ? 'train PR 后 Dispatch 输出独立于 saved-state 返回框架，由 retain_dispatch_output 控制（默认 True 驻留；False 释放但重派发反向未集成，backward 报错）；保留则反向直接读（dW1 的 A 矩阵）'
+    : c.variant === 'mgroup'
+      ? 'MGroup 前向仍嵌 saved（embedDispatchOutput 默认 true）；反向直接读'
+      : 'UDMA：packed X 在 SHMEM 窗 ptrA1，不占 saved';
+  const srow = n => { const r = L.saved.find(x => x.name === n); return r ? r.bytes : 0; };
+  const decideRows = [
+    ['packed X（Xpacked）[R,K]', L.packedXBytes, c.variant === 'normal' ? 'Dispatch 输出' : '存',
+     c.variant === 'normal' ? '传入 backward' : '直接读', dispNote,
+     c.variant === 'normal' ? 'F→B·可释放' : 'F→B'],
+    ['gate / up（Z [R,N]）', savedGU ? extBytes : recBytes,
+     savedGU ? (c.saveMode === 'mxfp8' ? `保存 MXFP8${c.clipMasks ? '+掩码' : ''}` : '保存 BF16') : '不落盘',
+     savedGU ? '直接读（反量化）' : '重算并落盘',
+     savedGU
+       ? `前向 GMM1 epilogue 直接写入 saved 追加区（${c.saveMode === 'mxfp8' ? 'FP8 每 32 元素带 scale' : 'BF16 全精度'}）；反向免 GMM1 重算，dW1 直接用`
+       : '前向 GMM1→SwiGLU tile 级融合，Z 不写 GM；反向需要 dW1，展开写入 backward ws 的 recomputeGate/Up',
+     savedGU ? 'F→B' : '仅 B'],
+    ['MXFP8 scale（+裁剪掩码）', scaleBytes, '保存', '直接读',
+     '每 32 元素一组的缩放（gate、up 各一份）；swiglu_limit 有限时附 gateHigh/upLow/upHigh 三位平面（layout v2）', 'F→B'],
+    ['SwiGLU 输出 H [R,F]', L.transient[0].bytes, '不存',
+     savedGU ? '由保存的 gate/up 重建' : '重算',
+     'H 本身始终不保存（transient 即弃）；反向得 Hp=p·H：保存模式直接读 gate/up 重建，重算模式跑 GMM1 bwd', '仅 F'],
+    ['packed TopK 权重 [R]', L.routedWBytes, c.variant === 'normal' ? 'Dispatch 输出' : '存', '直接读',
+     '与 packed X 同行序；epilogue 计算 Hp=p·H、dH=p·dHp（原始 topk_weights 不能替代它）',
+     c.variant === 'normal' ? 'F→B·可释放' : 'F→B'],
+    ['路由元数据（cumsum/双索引/sumBeforeRank）', srow('ptrcumsumMM') + srow('expandedRowIdx') + srow('expandedRowIdxGather') + srow('ptrSumBeforeRank'),
+     '存', '直接读', '反向寻址、dY 重排、Unpermute、跨 rank 传输边界全部依赖，量小必须存', 'F→B'],
+    ['完整计数表快照 [P,S]', srow('ptrSavedTokenPerExpert'), '存', 'Restore',
+     '前向结束前先 Save 再清零 peermem；反向 Restore 回 peermem 复用地址计算。counts[E] 总数不能替代（丢来源边界）', 'F→B'],
+    ['W1 / W2', L.wT, 'ctx 持有', '直接读',
+     'autograd save_for_backward 持有，不复制进 saved-state', '全程'],
+    ['原始 x / topk_ids', 0, '输入', '不需要',
+     'backward 不直接读：packed X + 双向路由索引 + 计数表已覆盖（docs §9.1 复核结论）', '—'],
+    ['dO / dZ / Hp / dpProducts', L.bwdT, '—', '反向临时',
+     'backward 调用时才申请，调用结束释放；不跨 micro-batch', '仅 B'],
+    ['y / counts', L.io[3].bytes + L.io[4].bytes, '输出', '不参与', '前向输出，不进入反向数学', '仅 F'],
+  ];
+  const LIFE_CLS = { 'F→B': 'lt-saved', 'F→B·可释放': 'lt-trans', '仅 F': 'lt-trans', '仅 B': 'lt-bwd', '全程': 'lt-io' };
+  $('#memDecide').innerHTML = '<thead><tr><th>数据</th><th>大小</th><th title="何时占显存：F=前向，B=反向">生命周期</th><th>前向</th><th>反向获取</th><th style="text-align:left">说明</th></tr></thead><tbody>' +
+    decideRows.filter(r => r[1] || !r[0].startsWith('MXFP8')).map(r => {
+      const b = r[1] ? `<td class="bytes">${humanBytes(r[1])}</td>` : '<td class="bytes">—</td>';
+      const led = r[5] && r[5] !== '—'
+        ? `<span class="ltg ${LIFE_CLS[r[5]] || ''}">${r[5]}</span>` : '<span style="color:#cbd5e1">—</span>';
+      return `<tr><td style="white-space:normal">${r[0]}</td>${b}` +
+        `<td>${led}</td>` +
+        `<td><span class="ltg ${r[2] === '存' ? 'lt-saved' : r[2] === '不存' || r[2] === '不落盘' ? 'lt-trans' : 'lt-io'}">${r[2]}</span></td>` +
+        `<td><span class="ltg ${r[3] === '重算' || r[3] === '重算并落盘' ? 'lt-bwd' : r[3] === '反向临时' ? 'lt-bwd' : 'lt-saved'}">${r[3]}</span></td>` +
+        `<td style="white-space:normal;text-align:left;color:#64748b;font-size:12px">${r[4]}</td></tr>`;
+    }).join('') + '</tbody>';
+
+  // ---- 字节账本明细 ----
+  const groups = [
+    ['持久 saved-state（fwd → bwd，每 micro-batch 一份）', L.saved],
+    ...(L.dispatch.length ? [['dispatch 输出（retain_dispatch_output=True 驻留；False 释放但反向未集成）', L.dispatch]] : []),
+    ['前向 transient（不保存，返回即释放）', L.transient],
+    ['反向 workspace（backward 调用时申请）', L.backward],
+    ['SHMEM 对称窗（布局需要量；实际预留 = localMemBytes 额度，见 KPI 建议）', L.shmem],
+    ['权重（autograd ctx 持有）', L.weights],
+    ['输入 / 输出 / 梯度', L.io],
+  ];
+  let tds = '';
+  for (const [gname, rowsArr] of groups){
+    const tot = rowsArr.reduce((x, r) => x + r.bytes, 0);
+    tds += `<tr class="grp"><td colspan="7">${gname} —— 合计 <span class="bytes">${tot.toLocaleString('en-US')}</span> B（${humanBytes(tot)}）</td></tr>`;
+    for (const r of rowsArr){
+      const lt = LIFE[r.life];
+      tds += `<tr><td>${r.name}</td><td class="bytes">${r.shape}</td><td class="bytes">${r.formula}</td>` +
+        `<td class="bytes">${r.bytes.toLocaleString('en-US')}</td><td class="bytes">${humanBytes(r.bytes)}</td>` +
+        `<td><span class="ltg ${lt[1]}">${lt[0]}</span></td><td style="white-space:normal;text-align:left;color:#64748b;font-size:12px">${r.role}</td></tr>`;
+    }
+  }
+  $('#memTbl').innerHTML = '<thead><tr><th>条目</th><th>逻辑形状</th><th>公式</th><th>字节</th><th>大小</th><th>生命周期</th><th style="text-align:left">用途 / 反向消费方式</th></tr></thead><tbody>' + tds + '</tbody>';
+  writeMemHash(c);
+}
+function initAnchorBadge(){
+  const anc = memAnchors();
+  const ok = anc.filter(a => a[1] === a[2]).length;
+  const badge = $('#mm-anchor');
+  badge.textContent = `模型自检 ${ok}/${anc.length} ${ok === anc.length ? '✓' : '✗'}`;
+  badge.className = 'badge ' + (ok === anc.length ? 'ok' : 'bad');
+  badge.title = '页面显存模型 vs 仓库权威公式（test_workspace_layout.py + docs），默认 shape 对账：\n' +
+    anc.map(a => `${a[0]}：期望 ${a[1].toLocaleString('en-US')} / 实算 ${a[2].toLocaleString('en-US')}`).join('\n');
+  $('#memAbout').innerHTML =
+    '<p>口径：saved 布局按变体区分——普通前向 embedDispatchOutput=false（saved 不含 packed X/routed 权重，' +
+    '它们以独立 dispatch_output 张量返回框架，由 retain_dispatch_output 控制：True（默认）驻留，False 释放但重派发反向未集成）；MGroup 仍嵌（默认 true）；UDMA 的 packed X/routed 在 SHMEM 窗。' +
+    'transient 普通 BF16 追加 Dispatch tile ready（Align512），' +
+    'MGroup 追加 Wave ready（Align128），UDMA 为紧凑布局（combineReady，Align512）；' +
+    'SHMEM 普通/MGroup 共用 PeermemInfo（含 routed TopK 权重槽），UDMA 另有 dispatch 信号与 [R,K] 激活接收区。' +
+    'SHMEM 初始化额度：Align2MiB(布局需要量)（local_mem_size 仅服务本算子，固定 shape 按需给即可）；测试脚本另有固定底座 2/3 GiB 口径。</p>' +
+    '<p>gate/up 保存模式（MEGAMOE_SAVE_GMM1_OUTPUT）：none=不保存，反向重算 GMM1（16RFK 口径，backward ws 含 recomputeGate/Up）；' +
+    'bf16=全精度保存（2·A512(2·R·F)），运行时默认；mxfp8=每 32 元素一组 FP8+scale（A512(R·F)+2·A512(R·⌈F/32⌉)），' +
+    'swiglu_limit 有限时另存三位裁剪平面（layout v2）。保存模式下反向免 GMM1 重算（≈12RFK），backward ws 相应缩小。' +
+    'auto 规则：无裁剪→MXFP8、有裁剪→BF16。</p>' +
+    '<p>多 micro-batch：每个未完成 backward 的 micro-batch 独立持有一份 saved，不能共用覆盖；' +
+    'transient / 反向 ws 为每次调用临时分配，串行执行时可复用。前向 launcher 返回前同步 stream，临时区随返回释放。</p>' +
+    '<p><b>内置锚点自检</b>（默认 shape M4096/N8192/K7168/topK16/EP8/EPR4/R65536，对照 test_workspace_layout.py 与 docs）：</p>' +
+    '<table><thead><tr><th>项目</th><th>docs 期望 (B)</th><th>本页实算 (B)</th><th>结果</th></tr></thead><tbody>' +
+    anc.map(a => `<tr><td>${a[0]}</td><td>${a[1].toLocaleString('en-US')}</td><td>${a[2].toLocaleString('en-US')}</td>` +
+      `<td>${a[1] === a[2] ? '✓' : '✗'}</td></tr>`).join('') + '</tbody></table>';
+}
+function exportMemCSV(){
+  const c = readMemCfg();
+  if (validateMem(c).length) return;
+  const L = memModel(c);
+  const lines = ['group,item,shape,formula,bytes,life,role'];
+  const groups = [['saved', L.saved], ['transient', L.transient], ['backward', L.backward],
+    ['shmem', L.shmem], ['weights', L.weights], ['io', L.io]];
+  for (const [gname, rowsArr] of groups)
+    for (const r of rowsArr)
+      lines.push([gname, r.name, r.shape, r.formula, r.bytes, r.life,
+        '"' + r.role.replace(/"/g, '""') + '"'].join(','));
+  const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `megamoe_memory_M${Math.floor(c.m)}_K${Math.floor(c.k)}_N${Math.floor(c.n)}_T${Math.floor(c.topk)}_EP${Math.floor(c.ep)}_R${Math.floor(c.r)}_${c.variant}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast(`已导出 ${lines.length - 1} 行账本 CSV`);
+}
+
+// ---------- 事件绑定 / 启动 ----------
+document.getElementById('cfgForm').addEventListener('input', () => {
+  clearTimeout(rt);
+  rt = setTimeout(render, 140);      // 实时刷新（轻量去抖）
+});
+document.getElementById('mfuForm').addEventListener('input', renderMfu);
+document.querySelectorAll('#segMode button').forEach(b =>
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#segMode button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    render();
+  }));
+document.querySelectorAll('.chips button').forEach(b =>
+  b.addEventListener('click', () => { $('#in-eps').value = b.dataset.eps; render(); }));
+
+// ---------- 图表放大弹层 ----------
+function openModal(chartId){
+  const opt = CHART_OPTS[chartId];
+  if (!opt) return;
+  const btn = document.querySelector(`.xbtn[data-chart="${chartId}"]`);
+  $('#mtitle').textContent = btn ? btn.dataset.title : '';
+  drawChart($('#mbody'), Object.assign({}, opt, {W: 1150, H: 700, fs: 1.25}));
+  $('#modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal(){
+  $('#modal').classList.remove('open');
+  $('#mbody').innerHTML = '';
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+$('#modal').addEventListener('click', e => { if (e.target === $('#modal')) closeModal(); });
+$('#mclose').addEventListener('click', closeModal);
+document.addEventListener('click', e => {
+  const b = e.target && e.target.closest ? e.target.closest('.xbtn') : null;
+  if (b) openModal(b.dataset.chart);
+});
+document.querySelectorAll('.chartmount').forEach(m =>
+  m.addEventListener('click', () => openModal(m.id)));
+
+// ---------- 图表布局切换（记忆偏好） ----------
+function setCols(n){
+  const c = $('#charts');
+  c.classList.remove('cols-1', 'cols-2', 'cols-3');
+  c.classList.add('cols-' + n);
+  document.querySelectorAll('.colsel button').forEach(b =>
+    b.classList.toggle('active', +b.dataset.cols === n));
+  try { localStorage.setItem('moe-roofline-cols', String(n)); } catch (e) {}
+}
+document.querySelectorAll('.colsel button').forEach(b =>
+  b.addEventListener('click', () => setCols(+b.dataset.cols)));
+try { setCols(parseInt(localStorage.getItem('moe-roofline-cols'), 10) || 2); }
+catch (e) { setCols(2); }
+
+$('#pre-roofline').addEventListener('click', () => {
+  applyCfgToInputs(PRESETS.roofline); render(); toast('已加载 roofline_probe 默认配置'); });
+$('#pre-epprobe').addEventListener('click', () => {
+  applyCfgToInputs(PRESETS.epprobe); render(); toast('已加载 ep_probe 默认配置'); });
+$('#btn-csv').addEventListener('click', exportCSV);
+$('#btn-cli').addEventListener('click', () => copyText(pyCli()));
+$('#btn-link').addEventListener('click', () => copyText(location.href));
+
+// ---------- Tab 切换 ----------
+function setTab(t){
+  document.body.classList.toggle('mem', t === 'mem');
+  $('#tabRoofline').style.display = t === 'mem' ? 'none' : '';
+  $('#tabMemory').style.display = t === 'mem' ? '' : 'none';
+  document.querySelectorAll('#tabbar button').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === t));
+  if (t === 'mem') renderMemory(); else render();
+}
+document.querySelectorAll('#tabbar button').forEach(b =>
+  b.addEventListener('click', () => setTab(b.dataset.tab)));
+
+// ---------- 显存 Tab 事件 ----------
+document.getElementById('memForm').addEventListener('input', () => {
+  clearTimeout(mrt);
+  mrt = setTimeout(renderMemory, 140);
+});
+document.querySelectorAll('#segVar button').forEach(b =>
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#segVar button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    renderMemory();
+  }));
+document.querySelectorAll('#segSave button').forEach(b =>
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#segSave button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    renderMemory();
+  }));
+document.querySelectorAll('.mchips button[data-rr]').forEach(b =>
+  b.addEventListener('click', () => {
+    const c = readMemCfg();
+    if (!(c.m >= 1) || !(c.topk >= 1)) return;
+    let v;
+    if (b.dataset.rr === 'mt') v = Math.floor(c.m) * Math.floor(c.topk);
+    else if (b.dataset.rr === 'mepmin')
+      v = Math.floor(c.m) * Math.floor(c.ep) * Math.min(Math.floor(c.epr || 1), Math.floor(c.topk));
+    else v = Math.floor(c.m) * Math.floor(c.ep || 1) * Math.floor(c.topk);
+    $('#mm-r').value = v;
+    renderMemory();
+  }));
+$('#mm-sync').addEventListener('click', () => {
+  const cfg = readCfg();
+  const fmax = Math.max(...cfg.fList);
+  $('#mm-m').value = cfg.m; $('#mm-k').value = cfg.k; $('#mm-topk').value = cfg.topk;
+  $('#mm-f').value = fmax;
+  renderMemory();
+  toast(`已同步 M/K/topK/F=${fmax}（N = ${2 * fmax}）`);
+});
+$('#mm-csv').addEventListener('click', e => { e.stopPropagation(); exportMemCSV(); });
+document.querySelectorAll('details.detcard > summary').forEach(s =>
+  s.addEventListener('click', e => {
+    if (e.target.closest && e.target.closest('button')) e.preventDefault();
+  }));
+
+// ---------- 启动 ----------
+(function init(){
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (p.get('tab') === 'mem'){
+    applyCfgToInputs(PRESETS.roofline);
+    applyMemInputs({
+      m: +(p.get('m') || 4096), k: +(p.get('k') || 7168),
+      f: p.get('f') ? +p.get('f') : (p.get('n') ? +p.get('n') / 2 : 4096),
+      topk: +(p.get('topk') || 16), ep: +(p.get('ep') || 8), epr: +(p.get('epr') || 4),
+      r: +(p.get('r') || 65536), hbm: +(p.get('hbm') || 64),
+      variant: p.get('v') === 'udma' ? 'udma' : p.get('v') === 'mgroup' ? 'mgroup' : 'normal',
+      saveMode: p.get('sv') === 'none' ? 'none' : p.get('sv') === 'mxfp8' ? 'mxfp8' : 'bf16',
+      clipMasks: p.get('sv') === 'mxfp8clip' });
+    render();
+    setTab('mem');
+  } else {
+    if (!readHash()) applyCfgToInputs(PRESETS.roofline);
+    render();
+    renderMemory();
+    setTab('roof');
+  }
+  initAnchorBadge();
+})();
+</script>
+</body>
+</html>
