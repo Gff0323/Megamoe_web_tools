@@ -466,9 +466,9 @@ N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd
       <div class="pnote" id="pipeBwdNote"></div>
       <div class="pnote" style="padding-top:0">
         <b>实测（同一次 trace）：</b>逐波只有 dO Dispatch（43 µs）→ dHp（43 µs/128 行块）→ SwiGLUGrad（65 µs），
-        是"细水长流"的部分；<b>真正的大头是尾部一次性的 dW1 ≈ 1434 µs、dW2 ≈ 733 µs、DX ≈ 1404 µs</b>，
+        是"细水长流"的部分；<b>真正的大头是尾部按专家一次性算的 dW2 ≈ 733 µs、DX ≈ 1404 µs、最后 dW1 ≈ 1434 µs</b>（实测顺序 dW2 → dX → combine → dW1；反向总跨 17.7 ms，dW1 独占最后 4.5 ms），
         之后 Combine（361 µs）与 UNPERMUTE（214 µs）收尾。EARLY dW2 只是填 dO 等待的空档，
-        在 trace 里并入 <code>AIC_BW_DW2</code> 家族，不是独立阶段。
+        raw trace 中没有 EARLY 事件名，只有 <code>args.early_dw2</code> 字段（本次运行 0 条为 True）。
       </div>
       <div class="tblwrap" style="max-height:none;border-top:1px solid var(--line)">
         <table id="pipeBwdTbl"></table>
@@ -2114,13 +2114,15 @@ function buildBwdSchematic(waves){
   }
 
   // 尾部（真实 trace 的大头）：dW1 / dW2 / dX 一次算完，再 combine + unpermute
+  // 尾部（真实顺序：dW2 → dX → combine → dW1 收尾）
   const tail = base + waves * P + 10;
-  put('AIC', 'AIC_BW_DW1', tail, M.dw1);
-  put('AIC', 'AIC_BW_DW2', tail + M.dw1, M.dw2);
-  put('AIC', 'AIC_BW_DX', tail + M.dw1 + M.dw2, M.dx);
-  put('AIV1', 'AIV_BW_DP_REDUCE', tail + M.dw1 * 0.3, M.dpReduce);
-  put('AIV0', 'AIV_BW_COMBINE', tail + M.dw1 + M.dw2 * 0.5, M.combine);
-  const t2 = tail + M.dw1 + M.dw2 + M.dx;
+  put('AIC', 'AIC_BW_DW2', tail, M.dw2);
+  put('AIC', 'AIC_BW_DX', tail + M.dw2 * 0.35, M.dx);
+  put('AIV0', 'AIV_BW_COMBINE', tail + M.dw2 * 0.7, M.combine);
+  put('AIV1', 'AIV_BW_DP_REDUCE', tail + M.dw2 * 0.2, M.dpReduce);
+  const t1 = tail + M.dw2 * 0.35 + M.dx;
+  put('AIC', 'AIC_BW_DW1', t1, M.dw1);
+  const t2 = t1 + M.dw1;
   put('AIV0', 'AIV_BW_UNPERMUTE', t2 + 4, M.permuteTail || M.unpermute);
   put('AIV1', 'AIV_BW_TOPK_UNPERMUTE', t2 + 4, M.topkUnpermute);
   put('AIV0', 'AIV_RESET', t2 + M.unpermute + 6, M.reset);
@@ -2343,6 +2345,7 @@ document.querySelectorAll('details.detcard > summary').forEach(s =>
 </script>
 </body>
 </html>
+
 
 
 
