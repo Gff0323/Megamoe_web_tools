@@ -1,4 +1,4 @@
-﻿// smoke.cjs — 页面守卫两件套：
+// smoke.cjs — 页面守卫两件套：
 //   1) 静态：CSS 存在性 / 结构 / 文案口径 / 锚点常量
 //   2) 运行时：自动桩 DOM 下真跑页面脚本 + setTab('mem') + renderMem 双分支，
 //      抓渲染作用域错误（如引用了不在作用域的标识符导致整个 renderMem 中断）
@@ -19,9 +19,13 @@ for (const [nm, pat] of [["CSS tabbar", ".tabbar{"], ["CSS memcfg", ".memcfg .gr
   ok(html.includes(pat), nm);
 for (const id of ["tabRoofline", "tabMemory", "tabMfu", "memKpis", "memTbl", "memDecide", "mm-csv",
   "mm-anchor", "m1", "m2", "m3", "m4", "ch1", "in-m", "mm-hbm", "mm-f", "mm-r",
-  "mfuForm", "in-mfu-ms", "in-mfu-base", "in-mfu-ep", "in-mfu-f", "mfuKpis", "mfuRoofKpis"])
+  "mfuForm", "in-mfu-ms", "in-mfu-base", "in-mfu-ep", "in-mfu-f", "mfuKpis", "mfuRoofKpis",
+  "tabPipe", "pipeFwdTbl", "pipeBwdTbl", "pipeTraceTbl", "segFwdSched", "segBwdSave"])
   ok(html.includes(`id="${id}"`), `容器 id=${id}`);
 ok(html.includes("实测 MFU"), "MFU 卡片标题");
+ok(html.includes("Wave 循环，五阶段") && html.includes("按专家 128 行块流水"), "流水页两节标题");
+ok(html.includes(".pstage{") && html.includes(".parrow{"), "流水页样式");
+ok(html.includes("wave_7_AIC_BW_DW2_EARLY_E1") && html.includes("AIV_BW_DP_REDUCE_SEND"), "事件命名对照");
 ok(html.includes("segMfuMode") && html.includes("segMfuSave"), "MFU 阶段 × gate/up 双维度选择");
 ok(html.includes("保存 · 免重算") && html.includes("重算 GMM1"), "MFU 反向 12/16RFK 可选");
 ok(html.includes("前向显存峰值 / rank"), "KPI 前向峰值卡");
@@ -109,6 +113,13 @@ const code = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).
   " document.querySelector('#segVar .active').dataset.v = 'udma'; setTab('mem');" +
   " const kpisU = document.getElementById('memKpis').innerHTML;" +
   " const m1nU = document.getElementById('m1').children.length;" +
+  " setTab('pipe');" +
+  " const pipeTabShown = document.getElementById('tabPipe').style.display === '';" +
+  " const fwdTbl = document.getElementById('pipeFwdTbl').innerHTML;" +
+  " const bwdTbl = document.getElementById('pipeBwdTbl').innerHTML;" +
+  " const traceTbl = document.getElementById('pipeTraceTbl').innerHTML;" +
+  " document.querySelector('#segFwdSched .active').dataset.v = '1'; renderPipe();" +
+  " const fwdNote1 = document.getElementById('pipeFwdNote').innerHTML;" +
   " setTab('mfu');" +
   " const m4n = document.getElementById('m4').children.length;" +
   " const mfuTabShown = document.getElementById('tabMfu').style.display === '';" +
@@ -130,7 +141,7 @@ const code2 = code.replace("return { kpis, m1n, m3n, tbl, kpisU, m1nU, m4n, mfuT
   " const bwdSave = document.getElementById('mfuCoefNote').textContent;" +
   " document.querySelector('#segMfuSave .active').dataset.v = 'recompute'; renderMfu();" +
   " const bwdRec = document.getElementById('mfuCoefNote').textContent;" +
-  " return { kpis, m1n, m3n, tbl, kpisU, m1nU, m4n, mfuTabShown, mfuK, mfu, mfu2, mfuF, mfuR, layerSave, bwdSave, bwdRec };");
+  " return { kpis, m1n, m3n, tbl, kpisU, m1nU, m4n, mfuTabShown, mfuK, mfu, mfu2, mfuF, mfuR, layerSave, bwdSave, bwdRec, pipeTabShown, fwdTbl, bwdTbl, traceTbl, fwdNote1 };");
 let P = null, runErr = null;
 try { P = new Function(code2)() || globalThis.__smoke; } catch (e) { runErr = e; }
 
@@ -149,6 +160,9 @@ else {
   ok((P.mfu2 || "").includes("%") && (P.mfu2 || "").includes("TFLOPS"), "运行时：MFU 数值计算");
   ok(P.m4n === 1 && P.mfuTabShown === true, "运行时：MFU 独立页渲染");
   ok((P.mfuK || "").includes("计算地板 C"), "运行时：MFU 页 KPI");
+  ok(P.pipeTabShown === true && (P.fwdTbl || "").includes("模式 1"), "运行时：流水页前向表");
+  ok((P.bwdTbl || "").includes("重算 GMM1") && (P.traceTbl || "").includes("EARLY"), "运行时：流水页反向/事件表");
+  ok((P.fwdNote1 || "").includes("分阶段"), "运行时：流水页模式切换生效");
   ok((P.mfuF || "").includes("6·R·F·K"), "运行时：前向口径切换（6RFK）");
 ok((P.layerSave || "").includes("coef = 18RFK"), "运行时：前向+反向+保存 = 18RFK");
 ok((P.bwdSave || "").includes("coef = 12RFK"), "运行时：反向+保存 = 12RFK");
@@ -160,5 +174,7 @@ const total = `SMOKE ${fails ? "FAIL" : "OK"} (${fails} 失败 / ${checks} 项)`
   (fails ? "" : " — 数值动态校验: node verify_model.mjs ref/r.csv ref/e.csv ref/layout_ref.json");
 console.log(total);
 process.exit(fails ? 1 : 0);
+
+
 
 

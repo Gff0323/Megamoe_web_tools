@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -57,6 +57,18 @@ main{flex:1;min-width:0}
 .mfurow{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
 .mfurow label{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)}
 .mfurow input,.mfurow select{width:96px;padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:13px;background:#fff;color:var(--txt)}
+/* ---------- 流水页 ---------- */
+.pipe{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap;padding:12px 14px}
+.pstage{flex:1 1 130px;min-width:120px;background:#f6f9fb;border:1px solid var(--line);
+  border-radius:7px;padding:9px 10px;display:flex;flex-direction:column;gap:3px}
+.pstage b{font-size:12.5px;color:var(--txt)}
+.pstage small{font-size:11px;color:var(--muted);line-height:1.45}
+.pstage.aic{border-left:3px solid var(--accent)}
+.pstage.aiv{border-left:3px solid #f59e0b}
+.pstage.ghost{background:#fff;border-style:dashed;border-left:3px dashed #8ba0b0}
+.parrow{align-self:center;color:#8ba0b0;font-size:15px}
+.pnote{padding:0 14px 12px;font-size:11.5px;color:var(--muted);line-height:1.75}
+.pnote code{background:#f1f6f9;border-radius:3px;padding:1px 4px;font-size:11px}
 #memKpis{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
 #memKpis .kv{font-size:22px}
 #memKpis .kl{font-size:12px}
@@ -258,6 +270,7 @@ details.about pre{background:#f6f9fb;border:1px solid var(--line);border-radius:
 <main>
   <div class="tabbar" id="tabbar">
     <button data-tab="mem" class="active">🧠 显存分析 · MegaMoe workspace 账本</button>
+    <button data-tab="pipe">🔀 流水 · BF16 前向/反向排布</button>
     <button data-tab="mfu">📐 实测 MFU · 算力利用率</button>
     <button data-tab="roof">⏱ 理论 Roofline · 耗时 / 加速上限</button>
   </div>
@@ -359,6 +372,75 @@ N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd
           <div class="legend" id="lm4"></div><div class="chartmount" id="m4"></div></div>
       </div>
     </details>
+  </div>
+
+  <div id="tabPipe" style="display:none">
+    <div class="echo">依据 DeepEP main@e18a161：experiments/megamoe/README.md「BF16 前向缓冲 / BF16 反向调度 / 核内打点」三节，与 mega_moe_wave_bf16.hpp 的 stage 序列。纯结构说明，不含实测耗时。</div>
+
+    <div class="sec-h">① 前向：Wave 循环，五阶段<span class="sec-sub">每波从一个或多个源 rank 取行，供 GMM1/SwiGLU 连续计算</span></div>
+    <div class="card" id="pipeFwd">
+      <div class="mfurow">
+        <span class="cfglab">前向调度</span>
+        <div class="seg" id="segFwdSched" style="margin:0;max-width:330px">
+          <button data-v="0" class="active">模式 0 · GMM1/GMM2 交错</button>
+          <button data-v="1">模式 1 · 分阶段</button>
+        </div>
+        <span class="sec-sub">DEEPEP_MEGAMOE_BF16_FORWARD_SCHEDULE（训练默认 0）</span>
+      </div>
+      <div class="pipe">
+        <div class="pstage"><b>Dispatch</b><small>按 Wave 取行</small></div><div class="parrow">→</div>
+        <div class="pstage aic"><b>GMM1</b><small>AIC · gate/up</small></div><div class="parrow">→</div>
+        <div class="pstage aiv"><b>SwiGLU</b><small>AIV · ×p</small></div><div class="parrow">→</div>
+        <div class="pstage aic"><b>GMM2</b><small>AIC</small></div><div class="parrow">→</div>
+        <div class="pstage"><b>Combine</b><small>回传源卡</small></div>
+      </div>
+      <div class="pnote" id="pipeFwdNote"></div>
+      <div class="tblwrap" style="max-height:none;border-top:1px solid var(--line)">
+        <table id="pipeFwdTbl"></table>
+      </div>
+    </div>
+
+    <div class="sec-h">② 反向：按专家 128 行块流水<span class="sec-sub">dO 分块访问顺序 = 各组轮转，搬运与计算共用同一块序</span></div>
+    <div class="card" id="pipeBwd">
+      <div class="mfurow">
+        <span class="cfglab">Gate/Up 来源</span>
+        <div class="seg" id="segBwdSave" style="margin:0;max-width:400px">
+          <button data-v="bf16" class="active">保存 BF16</button>
+          <button data-v="mxfp8">保存 MXFP8</button>
+          <button data-v="none">不保存 · 重算 GMM1</button>
+        </div>
+        <span class="sec-sub">对应 gmm1_save_type</span>
+      </div>
+      <div class="pipe">
+        <div class="pstage aiv"><b>AIV 写 dO 块</b><small>128 行/块 → 发 ready</small></div><div class="parrow">→</div>
+        <div class="pstage aic"><b>AIC 等 ready</b><small>本块就绪才算</small></div><div class="parrow">→</div>
+        <div class="pstage aic"><b>dHp</b><small>dO @ W2ᵀ</small></div><div class="parrow">→</div>
+        <div class="pstage aic"><b>SwiGLUGrad</b><small>等对应 dHp 列就绪</small></div>
+      </div>
+      <div class="pipe" style="margin-top:8px">
+        <div class="pstage ghost"><b>EARLY dW2</b><small>等 dO 的空档里，抢算前序专家一个 dW2 tile</small></div>
+        <div class="parrow">→</div>
+        <div class="pstage ghost"><b>dW1 / dW2</b><small>沿整专家行归约</small></div>
+        <div class="parrow">→</div>
+        <div class="pstage ghost"><b>dP 归约 + 回传</b><small>按全 rank 路由行数 × 全部 AIV 分工</small></div>
+      </div>
+      <div class="pnote" id="pipeBwdNote"></div>
+      <div class="tblwrap" style="max-height:none;border-top:1px solid var(--line)">
+        <table id="pipeBwdTbl"></table>
+      </div>
+    </div>
+
+    <div class="sec-h">③ 事件与 trace<span class="sec-sub">想验证重叠率，看真实时间线就靠它</span></div>
+    <div class="card" id="pipeTrace">
+      <div class="pnote" style="margin:0;padding:11px 14px">
+        <b>event</b> = kernel 在某个核上打的一条带时间戳的记录（阶段 + 波号 + 专家 + 行段 + 起止时间）；
+        <b>trace</b> = 一次前向/反向里全部 event 按时间排开，导出成 Chrome tracing JSON（<code>traceEvents</code>，<code>ts</code>/<code>dur</code> 单位微秒）。
+        构建时开 <code>DEEPEP_MEGAMOE_TIMER=ON</code>，由 <code>TimerCapture</code> 采集；反向另有 <code>*_backward_detail_trace.json</code> 保留逐 tile 坐标。
+      </div>
+      <div class="tblwrap" style="max-height:none;border-top:1px solid var(--line)">
+        <table id="pipeTraceTbl"></table>
+      </div>
+    </div>
   </div>
 
   <div id="tabMemory" style="display:none">
@@ -1629,12 +1711,94 @@ function exportMemCSV(){
   toast(`已导出 ${lines.length - 1} 行账本 CSV`);
 }
 
+// ---------- 流水页：BF16 前向/反向排布（依据 DeepEP main@e18a161 README） ----------
+function renderPipe(){
+  // ① 前向：两种调度
+  const sched = (document.querySelector('#segFwdSched .active') || {}).dataset
+    ? document.querySelector('#segFwdSched .active').dataset.v : '0';
+  const fwdTbl = document.getElementById('pipeFwdTbl');
+  const note = document.getElementById('pipeFwdNote');
+  if (fwdTbl){
+    fwdTbl.innerHTML = '<thead><tr><th style="text-align:left">调度</th><th style="text-align:left">Hp 空间</th>' +
+      '<th style="text-align:left">同一槽何时可覆盖</th></tr></thead><tbody>' +
+      '<tr' + (sched === '0' ? ' class="best"' : '') + '><td style="text-align:left">模式 0 · GMM1/GMM2 交错</td>' +
+      '<td style="text-align:left;white-space:normal">与临时 X 等行数，独立存放</td>' +
+      '<td style="text-align:left;white-space:normal">上一轮使用该槽的 Combine 全部发完，Dispatch 才能写下一轮 X</td></tr>' +
+      '<tr' + (sched === '1' ? ' class="best"' : '') + '><td style="text-align:left">模式 1 · 分阶段</td>' +
+      '<td style="text-align:left;white-space:normal">按完整接收容量分配</td>' +
+      '<td style="text-align:left;white-space:normal">上一轮整行 Hp 就绪即可覆盖 X；全部 SwiGLU tile 完成后 GMM2 接管循环槽，回绕时等上一轮 Combine 发完</td></tr>' +
+      '</tbody>';
+  }
+  if (note) note.innerHTML = sched === '0'
+    ? '当前：<b>模式 0</b> —— GMM1 与 GMM2 在同一 Wave 内交错推进；Hp 只占与临时 X 等行数的空间，代价是槽要等 Combine 发完才能复用。' +
+      '接收容量超过 8 个 Wave 时，临时 X 与 GMM2 输出共用 <b>8 个循环槽</b>。'
+    : '当前：<b>模式 1</b> —— GMM1/SwiGLU 与 GMM2 分阶段执行；Hp 按<b>完整接收容量</b>分配（更费显存），换来整行 Hp 就绪即可覆盖 X、GMM2 提前接管槽。';
+
+  // ② 反向：三种 Gate/Up 来源
+  const save = (document.querySelector('#segBwdSave .active') || {}).dataset
+    ? document.querySelector('#segBwdSave .active').dataset.v : 'bf16';
+  const bwdTbl = document.getElementById('pipeBwdTbl');
+  const bnote = document.getElementById('pipeBwdNote');
+  const ROWS = {
+    bf16: ['读取保存的 BF16 Gate/Up', '整行路径一次读 dHp + Gate + Up，同时算 dP、Hp、dZ',
+           'I 为 64 的倍数且 I ≤ 16384 时走反向 Wave（128 行块流水）'],
+    mxfp8: ['按行读每 32 列的量化值 + scale', 'FP32 解码后舍入 BF16；启用 clipping 时读同行掩码',
+            '支持 32 列分组的路径走反向 Wave'],
+    none: ['从保存/重建的 X 按整专家重算 GMM1', '先重算 GMM1 得到 Gate/Up，再算梯度', '走专家调度（无整行融合路径）'],
+  };
+  const r = ROWS[save];
+  if (bwdTbl){
+    bwdTbl.innerHTML = '<thead><tr><th style="text-align:left">gmm1_save_type</th><th style="text-align:left">Gate/Up 来源</th>' +
+      '<th style="text-align:left">计算方式</th><th style="text-align:left">Wave 路径</th></tr></thead><tbody>' +
+      Object.entries(ROWS).map(([k, v]) =>
+        '<tr' + (k === save ? ' class="best"' : '') + '><td style="text-align:left"><code>' + k + '</code></td>' +
+        '<td style="text-align:left;white-space:normal">' + v[0] + '</td>' +
+        '<td style="text-align:left;white-space:normal">' + v[1] + '</td>' +
+        '<td style="text-align:left;white-space:normal">' + v[2] + '</td></tr>').join('') + '</tbody>';
+  }
+  if (bnote) bnote.innerHTML =
+    '就绪链：<b>AIV 写完本块 dO → 发 ready → AIC 等 ready 再算 dHp → SwiGLUGrad 等对应 dHp 列就绪</b>。' +
+    '等 dO 的空档里，AIC 可为「已有完整 dO 和 Hp 的前序专家」抢算一个 dW2 tile（EARLY），算完重查 dO；后续 dW2 跳过已完成 tile。' +
+    '复用规则：<b>本行 dP 算完，Hp 才能覆盖 dHp；dHp 与 dW2 读完该专家 dO，dX 才能覆盖 dO</b>。' +
+    '把 <code>MEGAMOE_BF16_BWD_DISPATCH_SPLIT_EXPERTS=0</code> 可退回「等整专家 dO 就绪、dW2 全在原阶段算」。' +
+    '当前 Gate/Up 来源：<b>' + r[0] + '</b>。';
+
+  // ③ 事件与 trace 命名对照
+  const traceTbl = document.getElementById('pipeTraceTbl');
+  if (traceTbl){
+    const rows = [
+      ['wave_1_AIC_GMM1_0', '第 1 波、该核第 0 个 GMM1 任务', '前向'],
+      ['wave_N_AIC_SWIGLU_* ／ wave_N_AIC_GMM2_*', '同波内的 SwiGLU / GMM2 任务', '前向'],
+      ['wave_7_AIC_BW_DHP_E2', '第 7 波计算专家 2 的 dHp', '反向'],
+      ['wave_7_AIC_BW_DW2_EARLY_E1', '等第 7 波 dO 时抢算专家 1 的一个 dW2 tile', '反向'],
+      ['AIC_BW_DW2_E1', '常规阶段计算的 dW2（非 EARLY）', '反向'],
+      ['AIV_BW_DP_REDUCE_SEND', 'dP 归约 + 回传（主图合为一段）', '反向'],
+      ['AIV_BW_DP_SEND', '展开后每批 dP 发送（起止、专家、目标 rank）', '反向明细'],
+    ];
+    traceTbl.innerHTML = '<thead><tr><th style="text-align:left">事件名</th><th style="text-align:left">含义</th>' +
+      '<th style="text-align:left">阶段</th></tr></thead><tbody>' +
+      rows.map(r => '<tr><td style="text-align:left;white-space:normal"><code>' + r[0] + '</code></td>' +
+        '<td style="text-align:left;white-space:normal">' + r[1] + '</td>' +
+        '<td style="text-align:left">' + r[2] + '</td></tr>').join('') + '</tbody>';
+  }
+}
+
 // ---------- 事件绑定 / 启动 ----------
 document.getElementById('cfgForm').addEventListener('input', () => {
   clearTimeout(rt);
   rt = setTimeout(render, 140);      // 实时刷新（轻量去抖）
 });
 document.getElementById('mfuForm').addEventListener('input', renderMfu);
+document.querySelectorAll('#segFwdSched button').forEach(b =>
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#segFwdSched button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active'); renderPipe();
+  }));
+document.querySelectorAll('#segBwdSave button').forEach(b =>
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#segBwdSave button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active'); renderPipe();
+  }));
 document.querySelectorAll('#segMfuMode button').forEach(b =>
   b.addEventListener('click', () => {
     document.querySelectorAll('#segMfuMode button').forEach(x => x.classList.remove('active'));
@@ -1709,9 +1873,13 @@ function setTab(t){
   $('#tabRoofline').style.display = t === 'roof' ? '' : 'none';
   $('#tabMemory').style.display = t === 'mem' ? '' : 'none';
   $('#tabMfu').style.display = t === 'mfu' ? '' : 'none';
+  $('#tabPipe').style.display = t === 'pipe' ? '' : 'none';
   document.querySelectorAll('#tabbar button').forEach(b =>
     b.classList.toggle('active', b.dataset.tab === t));
-  if (t === 'mem') renderMemory(); else if (t === 'mfu') renderMfu(); else render();
+  if (t === 'mem') renderMemory();
+  else if (t === 'mfu') renderMfu();
+  else if (t === 'pipe') renderPipe();
+  else render();
 }
 document.querySelectorAll('#tabbar button').forEach(b =>
   b.addEventListener('click', () => setTab(b.dataset.tab)));
@@ -1790,3 +1958,5 @@ document.querySelectorAll('details.detcard > summary').forEach(s =>
 </script>
 </body>
 </html>
+
+
