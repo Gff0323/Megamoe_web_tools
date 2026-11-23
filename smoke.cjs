@@ -31,7 +31,7 @@ ok(html.includes("wave_7_AIC_BW_DW2_EARLY_E1") && html.includes("AIV_BW_DP_REDUC
 ok(html.includes("甘特图：导入 timer CSV"), "甘特图区块");
 ok(html.includes("流水示意") && html.includes("function buildFwdSchematic"), "流水示意区块");
 ok(html.includes("SCHED_MEAS") && html.includes("波周期 228") && html.includes("要等下一波 GMM1 算完才开始"), "示意以实测为据");
-ok(html.includes("dW1 ≈ 1434") && html.includes("INIT_ROUTING ≈ 92"), "反向尾部/固定开销实测标注");
+ok(html.includes("dW1 ≈ 1434") && html.includes("INIT_ROUTING ≈ 90"), "反向尾部/固定开销实测标注");
 ok(html.includes("function parseTimerCsv") && html.includes("_start_cycle"), "CSV 解析器");
 ok(html.includes("segMfuMode") && html.includes("segMfuSave"), "MFU 阶段 × gate/up 双维度选择");
 ok(html.includes("保存 · 免重算") && html.includes("重算 GMM1"), "MFU 反向 12/16RFK 可选");
@@ -194,6 +194,7 @@ const total = `SMOKE ${fails ? "FAIL" : "OK"} (${fails} 失败 / ${checks} 项)`
   (fails ? "" : " — 数值动态校验: node verify_model.mjs ref/r.csv ref/e.csv ref/layout_ref.json");
 console.log(total);
 process.exit(fails ? 1 : 0);
+
 
 
 
