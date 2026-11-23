@@ -85,6 +85,8 @@ N = 4 × max(三条腿 流量÷带宽)          # 每层 4 趟（fwd/bwd × disp
 - **存算决策表**（折叠）：每块数据的生命周期（F→B 驻留 / F→B·可释放 / 仅 F / 仅 B / 全程）、
   前向处理、反向获取方式与理由，随保存模式联动
 - **🔀 流水页**（第三个 Tab）：
+  - **⓪ 流水示意**：前向/反向切换、4/8 波展开的示意甘特（三车道 = AIC/AIV0/AIV1），
+    按波形画分隔线与波号，只表达阶段先后与重叠（**块宽不代表实测比例**），用于对外讲方案
   ① 前向 Wave 五阶段（Dispatch → GMM1 → SwiGLU → GMM2 → Combine）+ 模式 0/1 对比；
   ② 反向 128 行块就绪链 + EARLY dW2 抢算 + `dP→Hp`/`dHp+dW2→dX` 复用规则 + bf16/mxfp8/none 三档；
   ③ 事件命名与 Chrome trace 对照（`wave_N_AIC_BW_DHP_E2`、`AIV_BW_DP_REDUCE_SEND` 等）；
@@ -155,5 +157,6 @@ UDMA 后端仅在 `codex/deepep-udma-backend` 分支，`main` 已改走 URMA pee
 > 本目录位于独立 worktree `C:\MegaMoe\roofline_web`（分支 `roofline-web-tool`），
 > 与其他 worktree 隔离，避免被 `git clean` / 分支清理误删。日常起服务：
 > `python -m http.server 8791 --directory C:\MegaMoe\roofline_web\test\bigop_fused\roofline_web`
+
 
 

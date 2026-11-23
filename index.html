@@ -77,6 +77,8 @@ main{flex:1;min-width:0}
 .gantt-sep{stroke:#cbd8e2;stroke-width:1;stroke-dasharray:2 3}
 .gantt-ev{cursor:pointer}
 .gantt-ev:hover{stroke:#163047;stroke-width:1}
+.gantt-wave{stroke:#9fb4c4;stroke-width:1;stroke-dasharray:3 3}
+.gantt-wave-label{font-size:10px;fill:#61768a;font-weight:600}
 #memKpis{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
 #memKpis .kv{font-size:22px}
 #memKpis .kl{font-size:12px}
@@ -384,6 +386,29 @@ N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd
 
   <div id="tabPipe" style="display:none">
     <div class="echo">依据 DeepEP main@e18a161：experiments/megamoe/README.md「BF16 前向缓冲 / BF16 反向调度 / 核内打点」三节，与 mega_moe_wave_bf16.hpp 的 stage 序列。纯结构说明，不含实测耗时。</div>
+
+    <div class="sec-h">⓪ 流水示意<span class="sec-sub">讲方案用：只表达"谁和谁重叠、先后顺序"，块宽不代表实测比例</span></div>
+    <div class="card" id="pipeSchematic">
+      <div class="mfurow">
+        <div class="seg" id="segSched" style="margin:0;max-width:300px">
+          <button data-v="fwd" class="active">前向</button>
+          <button data-v="bwd">反向</button>
+        </div>
+        <span class="cfglab">波数</span>
+        <div class="seg" id="segWaves" style="margin:0;max-width:190px">
+          <button data-v="4" class="active">4 波</button>
+          <button data-v="8">8 波</button>
+        </div>
+        <span class="sec-sub" id="schedCaption"></span>
+      </div>
+      <div class="ganttwrap" style="max-height:none">
+        <div id="schedHost"></div>
+      </div>
+      <div class="legend" id="schedLegend" style="padding:6px 13px 10px"></div>
+      <div class="pnote" style="padding:0 14px 12px">
+        三车道 = 每个 AIC group 的三个核（AIC / AIV0 / AIV1）。有块的阶段才在该核上执行，空着的那格即"该核此刻空闲或在等"。
+      </div>
+    </div>
 
     <div class="sec-h">① 前向：Wave 循环，五阶段<span class="sec-sub">每波从一个或多个源 rank 取行，供 GMM1/SwiGLU 连续计算</span></div>
     <div class="card" id="pipeFwd">
@@ -1791,6 +1816,8 @@ function renderPipe(){
     '把 <code>MEGAMOE_BF16_BWD_DISPATCH_SPLIT_EXPERTS=0</code> 可退回「等整专家 dO 就绪、dW2 全在原阶段算」。' +
     '当前 Gate/Up 来源：<b>' + r[0] + '</b>。';
 
+  renderSchematic();
+
   // ③ 事件与 trace 命名对照
   const traceTbl = document.getElementById('pipeTraceTbl');
   if (traceTbl){
@@ -1893,17 +1920,22 @@ function parseTimerCsv(text){
   return { lanes, spanUs: tMax - tMin, eventCount: count, stages: stagesSeen };
 }
 
-function drawGantt(data, metaText){
-  const host = document.getElementById('ganttHost');
+function drawGantt(data, metaText, opts){
+  opts = opts || {};
+  const schematic = opts.mode === 'schematic';
+  const host = document.getElementById(opts.host || 'ganttHost');
   const empty = document.getElementById('ganttEmpty');
-  const legend = document.getElementById('ganttLegend');
-  const metaEl = document.getElementById('ganttMeta');
+  const legend = document.getElementById(opts.legend || 'ganttLegend');
+  const metaEl = schematic ? null : document.getElementById('ganttMeta');
   if (!host) return;
-  if (empty) empty.style.display = 'none';
+  if (empty && !schematic) empty.style.display = 'none';
   if (metaEl) metaEl.textContent = metaText || '';
 
-  const labelW = 118, padT = 22, rowH = 16, plotH = data.lanes.length * rowH;
-  const pxPerUs = Math.max(0.35, Math.min(3, 1100 / Math.max(data.spanUs, 1)));
+  const labelW = 118, padT = schematic ? 30 : 22, rowH = schematic ? 26 : 16;
+  const plotH = data.lanes.length * rowH;
+  const pxPerUs = schematic
+    ? 1150 / Math.max(data.spanUs, 1)
+    : Math.max(0.35, Math.min(3, 1100 / Math.max(data.spanUs, 1)));
   const plotW = Math.max(320, data.spanUs * pxPerUs);
   const W = labelW + plotW + 8, H = padT + plotH + 14;
   const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: 'chartsvg' });
@@ -1914,7 +1946,17 @@ function drawGantt(data, metaText){
   for (let i = 0; i <= 8; i++){
     const t = i * step, x = labelW + t * pxPerUs;
     sv('line', { x1: x, x2: x, y1: padT, y2: padT + plotH, class: 'gantt-grid' }, svg);
-    sv('text', { x, y: 13, 'text-anchor': 'middle', class: 'gantt-tick' }, svg).textContent = t.toFixed(0) + 'µs';
+    sv('text', { x, y: 13, 'text-anchor': 'middle', class: 'gantt-tick' }, svg).textContent =
+      schematic ? '' : t.toFixed(0) + 'µs';
+  }
+  // 示意模式：按波形画分隔线 + 波号
+  if (schematic && data.periodUs){
+    for (let w = 0; w <= data.waves; w++){
+      const x = labelW + w * data.periodUs * pxPerUs;
+      sv('line', { x1: x, x2: x, y1: padT - 4, y2: padT + plotH, class: 'gantt-wave' }, svg);
+      if (w < data.waves)
+        sv('text', { x: x + 4, y: padT - 8, class: 'gantt-wave-label' }, svg).textContent = 'Wave ' + w;
+    }
   }
   data.lanes.forEach((lane, li) => {
     const y = padT + li * rowH;
@@ -1971,6 +2013,83 @@ function ganttDemoCsv(){
   return rows.join('\n');
 }
 
+// ---------- ⓪ 流水示意甘特（讲方案用，非实测） ----------
+// 只表达阶段先后与重叠关系：块宽是示意刻度，不映射真实耗时比例。
+function buildFwdSchematic(waves){
+  const P = 120;                        // 每波占位（示意单位）
+  const lanes = [
+    { key: 'AIC',  label: 'AIC',  order: 0, events: [] },
+    { key: 'AIV0', label: 'AIV0', order: 1, events: [] },
+    { key: 'AIV1', label: 'AIV1', order: 2, events: [] },
+  ];
+  const put = (key, name, t0, dur) => lanes.find(l => l.key === key).events.push({ name, t0, dur });
+  for (let w = 0; w < waves; w++){
+    const t = w * P;
+    // AIC 顺序算：GMM1 → GMM2
+    put('AIC',  'AIC_GMM1', t + 8, 32);
+    put('AIC',  'AIC_GMM2', t + 56, 40);
+    // AIV0：为下一波拉行（Dispatch）、本波 SwiGLU、回传 Combine
+    put('AIV0', 'AIV_DISPATCH', t + 0, 26);
+    put('AIV0', 'AIV_SWIGLU',   t + 42, 14);
+    put('AIV0', 'AIV_COMBINE',  t + 98, 26);
+    // AIV1：计数/前缀同步 + 保存 gate/up
+    put('AIV1', 'AIV_COUNT_SYNC', t + 2, 16);
+    put('AIV1', 'AIV_SAVE_GATE_UP', t + 58, 22);
+  }
+  const span = waves * P + 20;
+  return { lanes, spanUs: span, periodUs: P, waves,
+    eventCount: lanes.reduce((n, l) => n + l.events.length, 0),
+    stages: ['AIC_GMM1', 'AIC_GMM2', 'AIV_DISPATCH', 'AIV_SWIGLU', 'AIV_COMBINE',
+             'AIV_COUNT_SYNC', 'AIV_SAVE_GATE_UP'] };
+}
+
+function buildBwdSchematic(waves){
+  const P = 200;
+  const lanes = [
+    { key: 'AIC',  label: 'AIC',  order: 0, events: [] },
+    { key: 'AIV0', label: 'AIV0', order: 1, events: [] },
+    { key: 'AIV1', label: 'AIV1', order: 2, events: [] },
+  ];
+  const put = (key, name, t0, dur) => lanes.find(l => l.key === key).events.push({ name, t0, dur });
+  for (let w = 0; w < waves; w++){
+    const t = w * P;
+    // AIV 写 dO 块 → 发布 ready
+    put('AIV0', 'AIV_BW_DISPATCH', t + 0, 34);
+    // AIC 等 dO 的空档里抢算前序专家的 dW2 tile（EARLY）
+    put('AIC',  'AIC_BW_DW2_EARLY', t + 10, 20);
+    put('AIC',  'AIC_BW_DHP',       t + 36, 34);
+    // SwiGLUGrad 等对应 dHp 列就绪
+    put('AIV0', 'AIV_BW_SWIGLU_GRAD', t + 72, 28);
+    put('AIC',  'AIC_BW_DW1_DW2',     t + 104, 40);
+    put('AIC',  'AIC_BW_DX',          t + 148, 34);
+    put('AIV0', 'AIV_BW_COMBINE',     t + 182, 16);
+    // AIV1：dP 归约 + 回传
+    put('AIV1', 'AIV_BW_DP_REDUCE', t + 74, 22);
+    put('AIV1', 'AIV_BW_DP_SEND',   t + 100, 18);
+  }
+  const span = waves * P + 20;
+  return { lanes, spanUs: span, periodUs: P, waves,
+    eventCount: lanes.reduce((n, l) => n + l.events.length, 0),
+    stages: ['AIV_BW_DISPATCH', 'AIC_BW_DW2_EARLY', 'AIC_BW_DHP', 'AIV_BW_SWIGLU_GRAD',
+             'AIC_BW_DW1_DW2', 'AIC_BW_DX', 'AIV_BW_COMBINE', 'AIV_BW_DP_REDUCE', 'AIV_BW_DP_SEND'] };
+}
+
+const SCHED_CAPTION = {
+  fwd: '前向：AIV0 为下一波拉行（Dispatch）的同时，AIC 正在算当前波的 GMM1 → SwiGLU → GMM2；Combine 与下一波 GMM1 重叠。',
+  bwd: '反向：AIV 写 dO 块并发布 ready，AIC 等 ready 再算 dHp；等 dO 的空档抢算前序专家的 dW2（EARLY），dX 在 dHp/dW2 读完 dO 后覆盖。',
+};
+
+function renderSchematic(){
+  const kind = (document.querySelector('#segSched .active') || {}).dataset
+    ? document.querySelector('#segSched .active').dataset.v : 'fwd';
+  const waves = parseInt((document.querySelector('#segWaves .active') || {}).dataset
+    ? document.querySelector('#segWaves .active').dataset.v : '4', 10);
+  const data = kind === 'fwd' ? buildFwdSchematic(waves) : buildBwdSchematic(waves);
+  const cap = document.getElementById('schedCaption');
+  if (cap) cap.textContent = SCHED_CAPTION[kind];
+  drawGantt(data, '', { host: 'schedHost', legend: 'schedLegend', mode: 'schematic' });
+}
+
 // ---------- 事件绑定 / 启动 ----------
 document.getElementById('cfgForm').addEventListener('input', () => {
   clearTimeout(rt);
@@ -1985,6 +2104,16 @@ document.getElementById('ganttFile').addEventListener('change', ev => {
   fr.readAsText(file);
 });
 document.getElementById('ganttDemo').addEventListener('click', () => loadGanttCsv(ganttDemoCsv(), '示例数据'));
+document.querySelectorAll('#segSched button').forEach(b =>
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#segSched button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active'); renderSchematic();
+  }));
+document.querySelectorAll('#segWaves button').forEach(b =>
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#segWaves button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active'); renderSchematic();
+  }));
 document.querySelectorAll('#segFwdSched button').forEach(b =>
   b.addEventListener('click', () => {
     document.querySelectorAll('#segFwdSched button').forEach(x => x.classList.remove('active'));
@@ -2154,6 +2283,8 @@ document.querySelectorAll('details.detcard > summary').forEach(s =>
 </script>
 </body>
 </html>
+
+
 
 
 
