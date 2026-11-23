@@ -640,21 +640,20 @@ function memModel(c){
   ];
   const backward = rows(backwardDefs);
 
-  // ④ SHMEM 对称窗：通信层持有，前向/反向复用（普通/MGroup 同布局）
-  const shmemDefs = (c.variant === 'udma') ? [
-    ['控制/同步保留区', '—', '60 KiB', 61440, 'shmem', 'SHMEM 对称窗口保留区'],
-    ['ptrTokenPerExpert 计数表', '[EP,S] i32', '4·EP·S', 4*P*S, 'shmem', '跨 rank 路由计数（可变；复用前快照到 saved）'],
-    ['dispatch/combine 数据槽', '2×[M·T,K] BF16', '2·(2·M·T·K)', 2*(2*M*T*K), 'shmem', '发送 / 返回数据区'],
-    ['dispatch 信号区', 'EP·EPR', 'Align512(8·EP·EPR)+512', alignUpTo(8*P*E, 512) + 512, 'shmem', 'UDMA 信号'],
-    ['激活接收区 ptrA1', '[R,K] BF16', 'Align512(2·R·K)', alignUpTo(2*R*K, 512), 'shmem', 'Dispatch 接收 / GMM1 输入；Combine 复用'],
-    ['routed TopK 权重', '[M·T] BF16', 'Align512(2·M·T)', alignUpTo(2*M*T, 512), 'shmem', '来源 rank 排序后权重，MTE 拉取源'],
-  ] : [
-    ['同步/控制保留区', '—', '72 KiB', 73728, 'shmem', '60KiB 旧头 + 4KiB rank 同步 + 8KiB AIV 生成计数（train PR 更新后）；EP≥512 且 EPR≤8 时另加紧凑计数收件箱'],
-    ...((P >= 512 && E > 0 && E <= 8) ? [['紧凑计数收件箱', 'P×64B 包 + 72×i32', 'Align512(64·P)+Align512(288)', alignUpTo(64*P, 512) + alignUpTo(288, 512), 'shmem', 'EP≥512 自动启用：每目的 rank 一个 64B 计数包，解包后仍写同一 dense 计数表']] : []),
-    ['ptrTokenPerExpert 计数表', '[EP,S] i32', '4·EP·S', 4*P*S, 'shmem', '跨 rank 路由计数（可变；复用前快照到 saved）'],
-    ['ptrA0 dispatch 发送槽', '[M·T,K] BF16', '2·M·T·K', 2*M*T*K, 'shmem', 'InitRouting 结果 / 发送区'],
-    ['ptrRoutedTopkWeights', '[M·T] BF16', 'Align512(2·M·T)', alignUpTo(2*M*T, 512), 'shmem', '来源 rank 排序后权重'],
-    ['ptrD combine 返回槽', '[M·T,K] BF16', '2·M·T·K', 2*M*T*K, 'shmem', 'combine 返回数据区'],
+  // ④ SHMEM 对称窗（BF16 训练、MTE 路径）：plan_bf16.cpp:162-164
+  //    peerBytes = PeerPayloadLayout(counts.payloadOffset, M, K, T).totalBytes  （routeWeightBeforeGmm2 默认 1）
+  const compactEnabled = P >= 512 && E >= 1 && E <= 8 && P <= 1024;
+  const compactPacket = compactEnabled ? alignUpTo(64*P, 512) : 0;
+  const compactSums = compactEnabled ? alignUpTo(72*4, 512) : 0;
+  const shmemDefs = [
+    ['rank 同步头', '—', '72 KiB（60 旧头 + 4 + 8）', 73728, 'shmem', 'kPeerDataOffset：60KiB 旧头 + 4KiB rank 同步 + 8KiB AIV 生成计数'],
+    ...(compactEnabled ? [['紧凑计数收件箱', 'EP×64B + 72×i32', 'Align512(64·EP)+Align512(288)', compactPacket + compactSums, 'shmem', 'EP≥512 且 EPR≤8 自动启用：每目的 rank 一个 64B 计数包']] : []),
+    ['ptrTokenPerExpert 计数表', '[EP,S] i32', '4·EP·S', 4*P*S, 'shmem', 'dense 计数表；反向 Restore 自 saved 快照'],
+    ['routeIndex 区', '[M,K] BF16', '2·M·K', 2*M*K, 'shmem', 'PeerPayloadLayout.routeIndex（按本 rank token 数 M，非 R）'],
+    ['route weight 区', '[M·T] i32', 'Align512(4·M·T)', alignUpTo(4*M*T, 512), 'shmem', 'PeerPayloadLayout.weight'],
+    ['routed TopK 权重', '[M·T] BF16', 'Align512(2·M·T)', alignUpTo(2*M*T, 512), 'shmem', 'PeerPayloadLayout.return 起点处的权重平面'],
+    ['combine / topkGrad 数据区', '[M·T,K] BF16', '2·M·T·K', 2*M*T*K, 'shmem', 'PeerPayloadLayout：return 与 topkGrad 共用这一块 M·T·K 数据区'],
+    ['topkGrad 权重副本', '[M·T] BF16', 'Align512(2·M·T)', alignUpTo(2*M*T, 512), 'shmem', 'PeerPayloadLayout 尾部权重副本'],
   ];
   const shmem = rows(shmemDefs);
 
@@ -708,9 +707,8 @@ function memAnchors(){
     ['普通 transient（A2 + swiglu→gmm2 flag）', 536871168, mk('normal').transT],
     ['backward · none（含重算 gate/up）', 3628074048, mk('normal', { saveMode: 'none' }).bwdT],
     ['backward · 保存 bf16（整行 topk grad）', 2550441536, mk('normal', { saveMode: 'bf16' }).bwdT],
-    // —— 未对齐：SHMEM/UDMA 待移植（新仓走 mega_moe_peermem.hpp 的 MTE/URMA 布局）——
-    ['普通/MGroup SHMEM 布局需要量', 1879257088, mk('normal').shmT],
-    ['UDMA SHMEM 布局需要量', 2818769920, mk('udma').shmT],
+    // —— SHMEM（BF16 训练 MTE：PeerPayloadLayout）——
+    ['SHMEM 布局需要量（MTE，三变体同）', 998846464, mk('normal').shmT],
   ];
 }
 /*MEM-MODEL-END*/

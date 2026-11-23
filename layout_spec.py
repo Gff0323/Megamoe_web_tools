@@ -114,6 +114,54 @@ def forward_transient_size(n, epr, max_recv_tokens):
     return a2 + align_up(epr * INT_CACHELINE * INT32_BYTES, ALIGN_128)
 
 
+# ---------- SHMEM / peermem（BF16 训练、MTE 路径；plan_bf16.cpp:162-164） ----------
+PEERMEM_DATA_OFFSET = 60 * 1024          # 旧 60KiB 头（CalcPeermemSize 口径）
+K_PEER_SYNC_COUNT_OFFSET = 64 * 1024     # 64KiB 处放 rank 同步计数
+K_PEER_DATA_OFFSET = 72 * 1024           # 数据区起点 = 72KiB（含 8KiB AIV 生成计数）
+COMPACT_MIN_EP = 512                     # kCompactTokenCountAutoMinEp
+COMPACT_MAX_LOCAL_EXPERTS = 8
+COMPACT_MAX_AIV_CORES = 72
+
+
+def compact_count_layout(world, epr, allow_compact=True):
+    """CompactTokenCountExchangeLayout：EP≥512 且 1≤EPR≤8 时启用紧凑计数收件箱。"""
+    enabled = allow_compact and (2 <= world <= 1024) and (1 <= epr <= COMPACT_MAX_LOCAL_EXPERTS)
+    packet = align_up(world * 64, ALIGN_512) if enabled else 0
+    block_sums = align_up(COMPACT_MAX_AIV_CORES * INT32_BYTES, ALIGN_512) if enabled else 0
+    token_counts_offset = K_PEER_DATA_OFFSET + packet + block_sums
+    stride = align_up(world * epr, ALIGN_128)
+    token_counts_bytes = world * stride * INT32_BYTES
+    return {
+        "enabled": enabled,
+        "packetBytes": packet,
+        "blockSumsBytes": block_sums,
+        "tokenCountsBytes": token_counts_bytes,
+        "payloadOffset": token_counts_offset + token_counts_bytes,
+    }
+
+
+def peer_payload_size(base, m, h, topk, weight_bytes=BF16_BYTES):
+    """PeerPayloadLayout：routeIndex + weight + return + topkGrad（plan_bf16.cpp 用它算 peerBytes）。"""
+    route_index = base + m * h * BF16_BYTES
+    weight = route_index + align_up(m * topk * INT32_BYTES, ALIGN_512)
+    ret = weight + align_up(m * topk * weight_bytes, ALIGN_512)
+    topk_grad = ret + m * topk * h * BF16_BYTES
+    total = topk_grad + align_up(m * topk * weight_bytes, ALIGN_512)
+    return {"routeIndex": route_index - base, "weight": weight - route_index,
+            "return": ret - weight, "topkGrad": topk_grad - ret,
+            "total": total - base, "upToTopkGrad": topk_grad - base}
+
+
+def shmem_size(m, k, topk, ep, epr, route_weight_before_gmm2=True,
+               weight_bytes=BF16_BYTES, compact=None):
+    """BF16 训练 SHMEM 需要量：72KiB 头 + 紧凑计数 + 计数表 + PeerPayloadLayout。"""
+    if compact is None:
+        compact = ep >= COMPACT_MIN_EP
+    layout = compact_count_layout(ep, epr, compact)
+    payload = peer_payload_size(layout["payloadOffset"], m, k, topk, weight_bytes)
+    return layout["payloadOffset"] + (payload["total"] if route_weight_before_gmm2 else payload["upToTopkGrad"])
+
+
 def backward_dispatch_progress_size(experts, sources, producers, saved_mode):
     """BackwardDispatchProgressLayout（64B/槽；仅非 none 模式有）。"""
     if not (use_gm_for_backward_data_grad(saved_mode) and experts):

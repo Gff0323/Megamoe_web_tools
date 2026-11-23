@@ -2,11 +2,10 @@
 """导出布局参考值(JSON)，供 verify_model.mjs 对账网页显存模型。
 
 数据来源（本仓自包含，无需 MegaMoe 源码）：
-  layout_spec.py —— 复刻 DeepEP xx/main @ e18a161 的
+  layout_spec.py —— 复刻 DeepEP main @ e18a161 的
                     mega_moe_bf16_layout.hpp / mega_moe_workspace_backward.hpp
-
-未移植项（SHMEM/peermem、UDMA 变体）仍沿用旧口径的本地公式（shmem_normal），
-verify_model.mjs 会对这些项单独标注"未对齐新仓"。
+                    （SHMEM 走 BF16 训练 MTE 路径：plan_bf16.cpp 的
+                      CompactTokenCountExchangeLayout + PeerPayloadLayout）
 
 用法：
   python export_layout_reference.py > ref/layout_ref.json
@@ -19,38 +18,10 @@ from layout_spec import (
     backward_workspace_size,
     dispatch_output_size,
     forward_transient_size,
+    shmem_size,
     training_saved_state_size,
     ALIGN_128, ALIGN_256, ALIGN_512,
 )
-
-
-def shmem_common(m, k, topk, ep, epr):
-    """对称窗公共部分（新仓 72KiB 同步头 + 计数表 + 2×[M·T,K] 数据槽），未含 routed 槽与收件箱。"""
-    s = 72 * 1024
-    s += ep * align_up(ep * epr, 128) * 4
-    s += 2 * m * topk * k * 2            # ptrA0 + ptrD
-    return s
-
-
-def shmem_normal(m, k, topk, ep, epr):
-    """普通/MGroup SHMEM（旧仓口径，待对齐新仓 peermem）：+ routed 槽 + 紧凑收件箱。"""
-    s = shmem_common(m, k, topk, ep, epr)
-    s += align_up(2 * m * topk, ALIGN_512)
-    if 512 <= ep <= 1024 and 0 < epr <= 8:
-        s += align_up(ep * 64, ALIGN_512) + align_up(72 * 4, ALIGN_512)
-    return s
-
-
-def shmem_udma(m, k, topk, ep, epr, r):
-    """UDMA SHMEM（旧仓口径，待对齐新仓 URMA peermem）：60KiB 控制 + 计数表 + 2×数据槽
-    + 信号区 + [R,K] 激活接收区 + routed 槽。"""
-    s = 60 * 1024
-    s += ep * align_up(ep * epr, 128) * 4
-    s += 2 * m * topk * k * 2
-    s += align_up(8 * ep * epr, ALIGN_512) + 512
-    s += align_up(2 * r * k, ALIGN_512)
-    s += align_up(2 * m * topk, ALIGN_512)
-    return s
 
 
 SHAPES = [
@@ -85,10 +56,10 @@ for s in SHAPES:
         # backward（新仓 BackwardWorkspaceLayout）
         "backward_none": backward_workspace_size(epr, r, k, n, ep, SAVE_NONE),
         "backward_saved": backward_workspace_size(epr, r, k, n, ep, SAVE_BF16),
-        # SHMEM：未对齐新仓，仍用旧口径
-        "shmem_normal_cpp": shmem_normal(m, k, topk, ep, epr),
-        "shmem_symmetric_py": shmem_common(m, k, topk, ep, epr),
-        "shmem_udma": shmem_udma(m, k, topk, ep, epr, r),
+        # SHMEM：BF16 训练 MTE 路径（三变体同布局）
+        "shmem_normal_cpp": shmem_size(m, k, topk, ep, epr),
+        "shmem_symmetric_py": shmem_size(m, k, topk, ep, epr),
+        "shmem_udma": shmem_size(m, k, topk, ep, epr),
     })
 
 print(json.dumps(out))

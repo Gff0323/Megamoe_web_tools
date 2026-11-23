@@ -103,12 +103,9 @@ if (process.argv[4]){
     chk(`${tag} transient(udma)`, U.transT, s.transient_udma);
     chk(`${tag} backward(none含重算)`, Nn.bwdT, s.backward_none);
     chk(`${tag} backward(saved免重算)`, Nb.bwdT, s.backward_saved);
-    chk(`${tag} shmem(normal)=PeermemInfo`, Nn.shmT, s.shmem_normal_cpp);
-    const compact = s.ep >= 512 && s.epr > 0 && s.epr <= 8;
-    const inbox = compact ? Math.ceil(s.ep * 64 / 512) * 512 + Math.ceil(72 * 4 / 512) * 512 : 0;
-    chk(`${tag} shmem(normal)−routed−收件箱=py对称窗`,
-      Nn.shmT - Math.ceil(2 * s.m * s.topk / 512) * 512 - inbox, s.shmem_symmetric_py);
-    chk(`${tag} shmem(udma)`, U.shmT, s.shmem_udma);
+    chk(`${tag} shmem=PeerPayloadLayout(MTE)`, Nn.shmT, s.shmem_normal_cpp);
+    chk(`${tag} shmem 三变体同布局`, U.shmT, s.shmem_udma);
+    chk(`${tag} shmem mgroup 同布局`, G.shmT, s.shmem_symmetric_py);
   }
   console.log('docs 锚点（M4096/N8192/K7168/T16/EP8/EPR4/R65536，MXFP8 文档 + §3.3/§9.2）：');
   for (const [name, exp, got] of mem.memAnchors()) chk('anchor ' + name, got, exp);

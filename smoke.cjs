@@ -1,4 +1,4 @@
-// smoke.cjs — 页面守卫两件套：
+﻿// smoke.cjs — 页面守卫两件套：
 //   1) 静态：CSS 存在性 / 结构 / 文案口径 / 锚点常量
 //   2) 运行时：自动桩 DOM 下真跑页面脚本 + setTab('mem') + renderMem 双分支，
 //      抓渲染作用域错误（如引用了不在作用域的标识符导致整个 renderMem 中断）
@@ -34,7 +34,8 @@ ok(html.includes("retain_dispatch_output"), "retain 开关口径");
 ok(html.includes("kbar-seg") && html.includes("kbrk"), "KPI 分解条/图例");
 ok(!html.includes("floor 富余"), "已删口径：floor 富余不回潮");
 ok(!html.includes("可驻留 micro-batch（"), "已删口径：可驻留卡不回潮");
-ok(html.includes("同步/控制保留区") && html.includes("72 KiB"), "SHMEM 同步头口径");
+ok(html.includes("rank 同步头") && html.includes("72 KiB"), "SHMEM 同步头口径");
+ok(html.includes("routeIndex 区") && html.includes("combine / topkGrad 数据区"), "SHMEM PeerPayload 行");
 ok(html.includes("紧凑计数收件箱"), "EP≥512 紧凑收件箱口径");
 ok(html.includes("R（maxRecvTokens 接收容量）"), "面板 R 符号对齐");
 ok(html.includes("生命周期") && html.includes("F→B") && html.includes("仅 B") && html.includes("仅 F"), "决策表生命周期列");
@@ -42,7 +43,7 @@ ok(html.includes("xTitle: '训练阶段（每 rank）'"), "M1 xTitle");
 ok(html.includes("peakMark: true") && html.includes("↑ 峰值"), "M1 峰值标注");
 ok(html.includes("const BX = i => Lm + (i + 0.5) * iw / n"), "柱状图槽位居中");
 for (const v of ["529408", "1074271232", "554177536", "939655168", "2013926400",
-  "3628074048", "2550441536", "536871168", "1879257088", "2818769920"])
+  "3628074048", "2550441536", "536871168", "998846464"])
   ok(html.includes(v), `锚点常量 ${v}`);
 ok(html.includes("/*MODEL-START*/") && html.includes("/*MODEL-END*/"), "MODEL 标记");
 ok(html.includes("/*MEM-MODEL-START*/") && html.includes("/*MEM-MODEL-END*/"), "MEM-MODEL 标记");
@@ -140,9 +141,9 @@ else {
   ok((P.kpis || "").includes("前向显存峰值 / rank"), "运行时：normal 分支 KPI 渲染");
   ok(P.m1n === 1, "运行时：M1 SVG 渲染 (" + P.m1n + ")");
   ok(P.m3n === 1, "运行时：M3 SVG 渲染 (" + P.m3n + ")");
-  ok((P.kpis || "").includes("同步/控制保留区") && (P.kpis || "").includes("发送槽"), "运行时：normal SHMEM 构成条");
-  ok((P.tbl || "").includes("同步/控制保留区"), "运行时：账本同步头行");
-  ok((P.kpisU || "").includes("ptrA1"), "运行时：UDMA 分支渲染");
+  ok((P.kpis || "").includes("rank 同步头") && (P.kpis || "").includes("combine / topkGrad 数据区"), "运行时：SHMEM 构成条");
+  ok((P.tbl || "").includes("rank 同步头"), "运行时：账本同步头行");
+  ok((P.kpisU || "").includes("PeerPayload") || (P.kpisU || "").includes("rank 同步头"), "运行时：UDMA 变体渲染");
   ok((P.mfu || "").includes("计算地板 C") && !(P.mfu || "").includes("通信 N"), "运行时：MFU 核心卡（无通信依赖）");
   ok((P.mfuR || "").includes("通信 N") && (P.mfuR || "").includes("融合上限"), "运行时：roofline 对比卡（折叠区）");
   ok((P.mfu2 || "").includes("%") && (P.mfu2 || "").includes("TFLOPS"), "运行时：MFU 数值计算");
@@ -159,3 +160,5 @@ const total = `SMOKE ${fails ? "FAIL" : "OK"} (${fails} 失败 / ${checks} 项)`
   (fails ? "" : " — 数值动态校验: node verify_model.mjs ref/r.csv ref/e.csv ref/layout_ref.json");
 console.log(total);
 process.exit(fails ? 1 : 0);
+
+

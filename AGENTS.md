@@ -1,4 +1,4 @@
-# megamoe_web_tools 项目约定（AGENTS.md）
+﻿# megamoe_web_tools 项目约定（AGENTS.md）
 
 ## 唯一维护源（独立仓）
 
@@ -18,8 +18,9 @@
   头部记录对齐的 commit。**头文件一变，先改 layout_spec.py，再改页面。**
 - 对账快照：`ref/layout_ref.json`（由 `python export_layout_reference.py > ref/layout_ref.json` 生成）。
 - `probes/` 存 `roofline_probe.py` / `ep_probe.py`（零依赖），用于重导 `ref/r.csv`、`ref/e.csv`。
-- 已知未对齐项：**SHMEM/peermem（新仓 MTE/URMA 两套布局）与 UDMA 变体**仍在用旧口径，
-  页面与 ref 里都标注了；移植后再更新锚点。
+- SHMEM 走 **BF16 训练 MTE 路径**（`plan_bf16.cpp` 的 CompactTokenCountExchangeLayout +
+  PeerPayloadLayout）；UDMA 后端只在 `codex/deepep-udma-backend` 分支，`main` 用 URMA peermem，未建模。
+- 数值基线：smoke 78 项 + verify 666 项。
 
 ## 交付纪律（每次修改必守）
 
@@ -39,3 +40,4 @@
 
 - 页面含内部布局细节（saved-state 偏移、SHMEM 头、backward workspace 公式）。
   仓库转公开前必须经负责人确认；凭据、内网地址、主机名不入 Git、不入聊天记录。
+

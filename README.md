@@ -1,4 +1,4 @@
-# MegaMoe 计算器（网页版）
+﻿# MegaMoe 计算器（网页版）
 
 三个纯理论工具的**实时交互版**，改配置即时出数，不再需要"跑一遍 Python → 生成 PNG/CSV → 打开看"：
 
@@ -127,9 +127,12 @@ cmd /c "cd probes && python ep_probe.py --bw-hccs 784 --bw-rack 80 --bw-cage 15 
 **已对齐新仓**：saved 四档（−1,024 B：`bwProgress` 移入反向进度区）、dispatch 输出、
 forward transient（−65,792 B：ready 区移出）、backward workspace（`dp` 走整行 topk grad、
 新增 4 个 readiness + progress + stagedReady）。
-**未对齐（待移植）**：SHMEM/peermem（新仓为 `mega_moe_peermem.hpp`，MTE/URMA 两套）与 UDMA 变体。
+**SHMEM 已对齐（BF16 训练、MTE 路径）**：`plan_bf16.cpp:162-164` 的
+`CompactTokenCountExchangeLayout` + `PeerPayloadLayout`（routeIndex / weight / return / topkGrad），
+默认 shape 由旧口径 1.79 GiB 降到 **0.93 GiB**（1,879,257,088 → 998,846,464 B）。
+UDMA 后端仅在 `codex/deepep-udma-backend` 分支，`main` 已改走 URMA peermem，未建模。
 
-当前基线：**667 项数值全部一致**。
+当前基线：**666 项数值全部一致**。
 
 > dispatch 输出口径（train PR 后）：普通前向 `embedDispatchOutput=false`——saved 不含
 > packed X / routed 权重，二者以独立 `dispatch_output` 张量返回框架，由
@@ -145,3 +148,4 @@ forward transient（−65,792 B：ready 区移出）、backward workspace（`dp`
 > 本目录位于独立 worktree `C:\MegaMoe\roofline_web`（分支 `roofline-web-tool`），
 > 与其他 worktree 隔离，避免被 `git clean` / 分支清理误删。日常起服务：
 > `python -m http.server 8791 --directory C:\MegaMoe\roofline_web\test\bigop_fused\roofline_web`
+
