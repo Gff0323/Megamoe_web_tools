@@ -430,7 +430,7 @@ N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd
       <div class="pnote" id="pipeFwdNote"></div>
       <div class="pnote" style="padding-top:0">
         <b>实测（all_rank_trace.json，rank0：M2048 H5120 F2304 topk6 EP8，33 波 × 32 group）：</b>
-        稳态每波 <b>2 个 GMM1 tile</b>（首波 3 个，各 69 µs）、波周期 228 µs；GMM2（29 µs）<b>要等下一波 GMM1 算完才开始</b>，
+        每波 GMM1 <b>138 µs（2 块 × 69）</b>、GMM2 <b>87 µs（3 块 × 29）</b>，波周期 228 µs——<b>GMM1:GMM2 ≈ 1.59，不是 2×</b>：按 FLOPs 是 2:1，但 GMM2 的 tile 更小更碎、单位算力效率略低（单 tile 比值才是 2.38×）。GMM2 <b>等下一波 GMM1 算完立刻开始（缝 ~2 µs）</b>，所以 AIC 基本满载，
         SwiGLU（27 µs）紧跟本波 GMM1，Combine（21 µs）跟在 GMM2 之后。
         <b>Dispatch（7 µs）以 ~11 µs 间隔提前数波连发</b>（w0/w1/w2/w3 = 246/256/268/279 µs，比 GMM1 早 4 波以上）；两端固定开销不小：INIT_ROUTING ≈ 90 µs、UNPERMUTE ≈ 183 µs。
       </div>
@@ -2033,11 +2033,12 @@ const SCHED_MEAS = {
   waveUs: 260,                       // 前向：3 个 GMM1 tile ≈ 210 + 余量
   waveUsBwd: 110,                    // 反向：dHp 43 + ready 间隔，逐块推进
   fwd: {
-    // 实测（rank0 group_0）：波周期 228 µs、稳态 2 个 GMM1 tile（首波 3 个）、GMM2 落后 353 µs
-    waveUs: 228, lagGmm2: 353, swigluOffset: 80, dispatchGap: 11,
-    initRouting: 90, countExchange: 4, gatherTopk: 2, bufferInit: 1,
-    gmm1: 69, gmm2: 29, swiglu: 27, dispatch: 7, combine: 9,
-    saveWeights: 7, reset: 0.4, unpermute: 183,
+    // 实测（rank0 group_0 稳态中位）：波周期 228 µs；每波 GMM1 138（2 块）vs GMM2 87（3 块）→ 1.59×；
+    // 单 tile 比值才是 2.38×（69 vs 29），两者块数不同所以每波比值小
+    waveUs: 228, gmm1Wave: 138, gmm1WaveFirst: 207, gmm2Wave: 87,
+    swigluWave: 54, swigluWaveFirst: 88, combine: 9, dispatchGap: 11,
+    initRouting: 90, countExchange: 4, gatherTopk: 2,
+    dispatch: 7, saveWeights: 7, reset: 0.4, unpermute: 183,
   },
   bwd: {
     gather: 55, restoreTable: 0.2, dispatch: 43, dhp: 43, swigluGrad: 65,
@@ -2068,13 +2069,14 @@ function buildFwdSchematic(waves){
   const t0 = base + waves * M.dispatchGap + 8;   // GMM1 起点（dispatch 已提前跑完）
   for (let w = 0; w < waves; w++){
     const t = t0 + w * P;
-    const tiles = w === 0 ? 3 : 2;               // 首波 3 个 tile，稳态 2 个
-    put('AIC',  'AIC_GMM1', t, M.gmm1 * tiles);
-    put('AIV0', 'AIV_SWIGLU', t + M.swigluOffset, M.swiglu * tiles);
-    // GMM2 落后约一波：等下一波的 GMM1 算完才轮到它（实测 647 ≈ GMM1(w1) 507+138）
-    const g2 = t + P + M.gmm1 * 2 + 8;
-    put('AIC',  'AIC_GMM2', g2, M.gmm2 * tiles);
-    put('AIV1', 'AIV_COMBINE', g2 + M.gmm2 * tiles + 106, M.combine);
+    const g1 = w === 0 ? M.gmm1WaveFirst : M.gmm1Wave;      // 实测每波 GMM1 总时长
+    const sw = w === 0 ? M.swigluWaveFirst : M.swigluWave;  // 跟随 tile 数
+    put('AIC',  'AIC_GMM1', t, g1);
+    put('AIV0', 'AIV_SWIGLU', t + 80, sw);
+    // GMM2 等下一波 GMM1 算完立即开始（真实 645→647，缝 ~2µs），因此 AIC 基本满载
+    const g2 = t + P + M.gmm1Wave + 2;
+    put('AIC',  'AIC_GMM2', g2, M.gmm2Wave);
+    put('AIV1', 'AIV_COMBINE', g2 + M.gmm2Wave + 106, M.combine);
   }
 
   // epilogue：保存 dispatch 权重 → reset → unpermute（实测 183 µs，很显眼）
@@ -2346,6 +2348,7 @@ document.querySelectorAll('details.detcard > summary').forEach(s =>
 </script>
 </body>
 </html>
+
 
 
 
