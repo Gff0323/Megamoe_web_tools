@@ -1,12 +1,16 @@
-# MoE 理论 Roofline + 显存分析器（网页版）
+# MegaMoe 计算器（网页版）
 
-两个纯理论工具的**实时交互版**，改配置即时出数，不再需要"跑一遍 Python → 生成 PNG/CSV → 打开看"：
+三个纯理论工具的**实时交互版**，改配置即时出数，不再需要"跑一遍 Python → 生成 PNG/CSV → 打开看"：
 
-- **⏱ 理论 Roofline 页**：`test/bigop_fused/roofline_probe.py` / `ep_probe.py` 的移植
-- **🧠 显存分析页**：MegaMoe BF16 训练前向/反向的显存（HBM）账本，
+- **🧠 显存分析页**（默认页）：MegaMoe BF16 训练前向/反向的显存（HBM）账本，
   字节公式与 kernel 布局逐项一致，基于 docs《MegaMoe_BF16_前向持久Workspace第一版与反向适配》
+- **📐 实测 MFU 页**：输入 bench 耗时，得到 achieved TFLOPS / MFU%，含计算地板与 baseline 加速比
+- **⏱ 理论 Roofline 页**：`roofline_probe.py` / `ep_probe.py` 的移植
 
 纯理论模型（均衡路由 + 理想重叠假设），**不依赖 NPU**，全部计算在浏览器本地完成。
+
+线上地址：<https://gff0323.github.io/Megamoe_web_tools/>（私有仓，需 GitHub 权限）
+本仓即维护源；MegaMoe 主仓的 `test/bigop_fused/roofline_web/` 是历史副本，不再编辑。
 
 ## 打开方式
 
@@ -16,7 +20,7 @@
 # 方式 A：直接双击 index.html（file:// 即可用，零依赖）
 
 # 方式 B：起个静态服务（推荐，方便多标签页/分享）
-python -m http.server 8791 --directory test/bigop_fused/roofline_web
+python -m http.server 8791 --directory .
 # 浏览器打开 http://127.0.0.1:8791/
 ```
 
@@ -101,18 +105,23 @@ x/y 与优化器状态由框架持有，不计入算子 workspace；多个未反
 
 ## 回归校验
 
-参考资产已入库（`ref/`），temp 被清理也不影响复跑：
+本仓自包含：`ref/` 存着从 MegaMoe 源码导出的参考快照，校验不需要 MegaMoe 代码。
 
 ```bash
-# 静态守卫（CSS/结构/文案/锚点常量，44 项）
-node test/bigop_fused/roofline_web/smoke.cjs
-# 数值动态校验（网页模型 vs python/头文件公式）
-node test/bigop_fused/roofline_web/verify_model.mjs \
-  test/bigop_fused/roofline_web/ref/r.csv \
-  test/bigop_fused/roofline_web/ref/e.csv \
-  test/bigop_fused/roofline_web/ref/layout_ref.json
-# 布局公式变更后重新生成参考值（r.csv/e.csv 同理用 probe 脚本重导）
-python test/bigop_fused/roofline_web/export_layout_reference.py > test/bigop_fused/roofline_web/ref/layout_ref.json
+# 静态 + 运行时渲染守卫（76 项）
+node smoke.cjs
+# 数值动态校验（网页模型 vs python/头文件公式，666 项）
+node verify_model.mjs ref/r.csv ref/e.csv ref/layout_ref.json
+```
+
+MegaMoe 代码更新后重导参考值（本仓不含源码，需指向 MegaMoe 仓）：
+
+```powershell
+# PowerShell 直接 > 会写 UTF-16，必须走 cmd /c
+cmd /c "python export_layout_reference.py --repo-root C:\MegaMoe\roofline_web > ref\layout_ref.json"
+# roofline 侧 CSV 同理，用 MegaMoe 仓的 probe 脚本重导：
+cmd /c "cd /d <MegaMoe 仓>\test\bigop_fused && python roofline_probe.py --cube-tflops 410.4 --bw-hccs 247.8 --bw-rack 141.6 --bw-cage 141.6 --r-node 8 --r-rack 8 --eps 8,16,32,64,128,256,512,1024 --csv <本仓>\ref\r.csv --out %TEMP%\r.png"
+cmd /c "cd /d <MegaMoe 仓>\test\bigop_fused && python ep_probe.py --bw-hccs 784 --bw-rack 80 --bw-cage 15 --r-node 8 --r-rack 8 --eps 8,16,32,64,128,256,320 --csv <本仓>\ref\e.csv --out %TEMP%\e.png"
 ```
 
 当前基线：**666 项数值全部一致**（roofline 560 + 显存 6 shape×三变体×gate/up 四档及 dispatch 输出 96 + docs 锚点 10）。

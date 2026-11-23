@@ -3,52 +3,54 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MoE 理论 Roofline 计算器</title>
+<title>MegaMoe 计算器</title>
 <style>
 :root{
-  --bg:#eef2f7; --card:#ffffff; --line:#e2e8f0; --txt:#0f172a; --muted:#64748b;
-  --accent:#2563eb; --blue:#2563eb; --orange:#f59e0b; --green:#10b981;
+  --bg:#f3f7fa; --card:#fff; --line:#dce5ed; --txt:#163047; --muted:#61768a;
+  --accent:#176b82; --soft:#e9f4f6;
+  --mono:Consolas,"Cascadia Code",ui-monospace,monospace;
+  --blue:#2563eb; --orange:#f59e0b; --green:#10b981;
   --red:#ef4444; --dark:#111827;
 }
 *{box-sizing:border-box}
 html,body{margin:0}
 body{font-family:"Segoe UI","Microsoft YaHei",system-ui,-apple-system,sans-serif;
   background:var(--bg);color:var(--txt);font-size:14px}
-header{padding:14px 20px 12px;border-bottom:1px solid var(--line);background:#fff}
-h1{margin:0;font-size:19px;letter-spacing:.2px}
-.sub{color:var(--muted);font-size:12.5px;margin-top:5px}
-.layout{display:flex;gap:16px;padding:16px;align-items:flex-start}
-aside.cfg{width:300px;flex:0 0 auto;position:sticky;top:12px}
+header{padding:18px 24px 14px;border-bottom:1px solid var(--line);background:#fff}
+h1{margin:0;font-size:22px;letter-spacing:-.6px;font-weight:700}
+.sub{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.7}
+.layout{display:flex;gap:18px;padding:18px 22px;align-items:flex-start}
+aside.cfg{width:300px;flex:0 0 auto;position:sticky;top:14px}
 main{flex:1;min-width:0}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;
-  box-shadow:0 1px 2px rgba(15,23,42,.06)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;
+  box-shadow:0 1px 2px rgba(22,48,71,.05)}
 /* ---------- config panel ---------- */
-.cfg{padding:12px 14px}
-.cfg h3{margin:14px 0 8px;font-size:12px;color:var(--muted);font-weight:600;
+.cfg{padding:14px 16px}
+.cfg h3{margin:14px 0 8px;font-size:12px;color:var(--accent);font-weight:700;
   text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--line);
   padding-bottom:4px}
 .cfg h3:first-child{margin-top:2px}
 .row{display:flex;align-items:center;gap:8px;margin:7px 0}
-.row label{flex:0 0 96px;font-size:12.5px;color:#334155}
-.row input[type=number],.row input[type=text]{flex:1;min-width:0;border:1px solid #cbd5e1;
-  border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;background:#fff}
-.row input:focus{outline:2px solid #bfdbfe;border-color:var(--accent)}
-.hint{font-size:11px;color:#94a3b8;margin:2px 0 6px 104px}
-.seg{display:flex;border:1px solid #cbd5e1;border-radius:7px;overflow:hidden;margin:7px 0}
-.seg button{flex:1;border:none;background:#f8fafc;padding:6px 4px;font-size:12px;
-  cursor:pointer;font-family:inherit;color:#475569}
+.row label{flex:0 0 96px;font-size:12.5px;color:#435b6f}
+.row input[type=number],.row input[type=text]{flex:1;min-width:0;border:1px solid #c9d7e2;
+  border-radius:5px;padding:6px 8px;font-size:13px;font-family:inherit;background:#fff}
+.row input:focus{outline:3px solid #e7a72b55;border-color:var(--accent)}
+.hint{font-size:11px;color:#8ba0b0;margin:2px 0 6px 104px}
+.seg{display:flex;border:1px solid #c9d7e2;border-radius:6px;overflow:hidden;margin:7px 0}
+.seg button{flex:1;border:none;background:#f6f9fb;padding:7px 4px;font-size:12px;
+  cursor:pointer;font-family:inherit;color:#496579}
 .seg button.active{background:var(--accent);color:#fff;font-weight:600}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
-.chips button,.presets button,.tblbar button{border:1px solid #cbd5e1;background:#fff;
-  border-radius:6px;padding:4px 9px;font-size:12px;cursor:pointer;font-family:inherit;color:#334155}
-.chips button:hover,.presets button:hover,.tblbar button:hover{border-color:var(--accent);color:var(--accent)}
+.chips button,.presets button,.tblbar button{border:1px solid #c9d7e2;background:#fff;
+  border-radius:5px;padding:5px 10px;min-height:30px;font-size:12px;cursor:pointer;font-family:inherit;color:#435b6f;font-weight:600}
+.chips button:hover,.presets button:hover,.tblbar button:hover{border-color:#7eabb9;background:#f1f8fa;color:var(--accent)}
 .presets{display:flex;gap:6px;margin-top:10px}
 .presets button{flex:1}
 #err{display:none;margin:0 16px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;
   border-radius:8px;padding:9px 13px;font-size:13px;margin-bottom:0}
 /* ---------- main ---------- */
-.echo{background:#0f172a;color:#cbd5e1;border-radius:8px;padding:8px 12px;
-  font-family:ui-monospace,Consolas,monospace;font-size:11.8px;line-height:1.65;
+.echo{background:#163047;color:#c9dae4;border-radius:8px;padding:8px 12px;
+  font-family:var(--mono);font-size:11.8px;line-height:1.65;
   margin-bottom:12px;white-space:pre-wrap;word-break:break-all}
 .echo .warn{color:#fbbf24}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px}
@@ -58,48 +60,50 @@ main{flex:1;min-width:0}
 #memKpis{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
 #memKpis .kv{font-size:22px}
 #memKpis .kl{font-size:12px}
-.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 13px}
-.kl{font-size:11.5px;color:var(--muted)}
-.kv{font-size:19px;font-weight:700;margin:3px 0 2px;font-variant-numeric:tabular-nums}
-.kv small{font-size:12px;font-weight:600;color:var(--muted)}
-.ks{font-size:11.5px;color:#94a3b8}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:11px 14px}
+.kl{font-size:11px;color:var(--muted);letter-spacing:.3px}
+.kv{font-size:19px;font-weight:700;margin:4px 0 3px;font-variant-numeric:tabular-nums;
+  font-family:var(--mono);letter-spacing:-.3px}
+.kv small{font-size:12px;font-weight:600;color:var(--muted);font-family:"Segoe UI","Microsoft YaHei",sans-serif}
+.ks{font-size:11.5px;color:#8ba0b0}
 .kbar{display:flex;height:7px;border-radius:4px;overflow:hidden;background:var(--line);margin:6px 0 5px}
 .kbar-seg{height:100%;min-width:1px}
 .kbrk{display:flex;flex-wrap:wrap;gap:3px 12px;font-size:11.5px;color:var(--muted);margin-bottom:4px}
 .kbrk i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
-.kbrk b{color:var(--txt);font-variant-numeric:tabular-nums;font-weight:600}
+.kbrk b{color:var(--txt);font-variant-numeric:tabular-nums;font-weight:600;font-family:var(--mono)}
 .chartbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
 .chartbar .lab{font-size:12.5px;color:var(--muted)}
-.colsel{display:flex;border:1px solid #cbd5e1;border-radius:7px;overflow:hidden}
-.colsel button{border:none;background:#fff;padding:4px 13px;font-size:12px;cursor:pointer;font-family:inherit;color:#475569}
+.colsel{display:flex;border:1px solid #c9d7e2;border-radius:6px;overflow:hidden}
+.colsel button{border:none;background:#fff;padding:4px 13px;font-size:12px;cursor:pointer;font-family:inherit;color:#496579}
 .colsel button.active{background:var(--accent);color:#fff;font-weight:600}
 .charts{display:grid;gap:14px;margin-bottom:14px}
 .charts.cols-1{grid-template-columns:minmax(0,1fr)}
 .charts.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .charts.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media (max-width:1100px){.charts{grid-template-columns:minmax(0,1fr) !important}}
-.xbtn{border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:2.5px 9px;font-size:11.5px;
-  cursor:pointer;color:#64748b;font-family:inherit}
-.xbtn:hover{border-color:var(--accent);color:var(--accent)}
+.xbtn{border:1px solid #c9d7e2;background:#fff;border-radius:5px;padding:2.5px 9px;font-size:11.5px;
+  cursor:pointer;color:#61768a;font-family:inherit}
+.xbtn:hover{border-color:#7eabb9;color:var(--accent)}
 .chartmount{cursor:zoom-in}
-#modal{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;
+#modal{position:fixed;inset:0;background:rgba(22,48,71,.5);display:none;
   align-items:center;justify-content:center;z-index:50;padding:22px}
 #modal.open{display:flex}
-.mcard{background:#fff;border-radius:12px;max-width:min(96vw,1400px);width:100%;max-height:92vh;
-  display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.32)}
+.mcard{background:#fff;border-radius:10px;max-width:min(96vw,1400px);width:100%;max-height:92vh;
+  display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(22,48,71,.32)}
 .mhead{display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:12px 16px;border-bottom:1px solid var(--line)}
 .mhead .card-t{font-size:14.5px;font-weight:650}
-.mclose{border:none;background:#f1f5f9;border-radius:6px;padding:5px 13px;font-size:13px;
-  cursor:pointer;font-family:inherit;color:#334155}
-.mclose:hover{background:#e2e8f0}
+.mclose{border:none;background:#eef3f7;border-radius:6px;padding:5px 13px;font-size:13px;
+  cursor:pointer;font-family:inherit;color:#435b6f}
+.mclose:hover{background:#e2ecf1}
 .mbody{padding:6px 10px 12px;overflow:auto}
 .mbody .chartsvg{max-height:76vh}
 /* ---------- tab bar ---------- */
-.tabbar{display:flex;gap:8px;margin-bottom:14px}
-.tabbar button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;
-  padding:8px 18px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#475569}
-.tabbar button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.tabbar{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+.tabbar button{border:0;background:transparent;border-radius:0;
+  padding:10px 16px 12px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--muted);
+  box-shadow:inset 0 -3px transparent}
+.tabbar button.active{color:var(--accent);box-shadow:inset 0 -3px var(--accent)}
 body.mem .layout > aside.cfg{display:none}
 /* ---------- 显存页 ---------- */
 .errbox{display:none;margin-bottom:14px;background:#fef2f2;border:1px solid #fecaca;
@@ -109,38 +113,38 @@ body.mem .layout > aside.cfg{display:none}
 .memcfg{padding:12px 14px;margin-bottom:14px}
 .memcfg .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px 14px}
 .memcfg .f label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
-.memcfg .f input{width:100%;border:1px solid #cbd5e1;border-radius:6px;padding:5px 7px;
+.memcfg .f input{width:100%;border:1px solid #c9d7e2;border-radius:5px;padding:6px 8px;
   font-size:13px;font-family:inherit;background:#fff;box-sizing:border-box}
-.memcfg .f input:focus{outline:2px solid #bfdbfe;border-color:var(--accent)}
+.memcfg .f input:focus{outline:3px solid #e7a72b55;border-color:var(--accent)}
 .memrow0{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.cfglab{font-size:12px;color:#475569;font-weight:600;white-space:nowrap}
+.cfglab{font-size:12px;color:#435b6f;font-weight:600;white-space:nowrap}
 .memrow2{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:11px}
 .mchips{display:inline-flex;gap:6px;flex-wrap:wrap}
-.mchips button{border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:3.5px 9px;
-  font-size:11.5px;cursor:pointer;font-family:inherit;color:#475569}
-.mchips button:hover{border-color:var(--accent);color:var(--accent)}
+.mchips button{border:1px solid #c9d7e2;background:#fff;border-radius:5px;padding:3.5px 9px;
+  font-size:11.5px;cursor:pointer;font-family:inherit;color:#496579}
+.mchips button:hover{border-color:#7eabb9;color:var(--accent)}
 .badge{display:inline-flex;align-items:center;gap:5px;border-radius:6px;padding:3px 10px;
   font-size:12px;font-weight:600}
 .badge.ok{background:#dcfce7;color:#166534}
 .badge.bad{background:#fee2e2;color:#991b1b}
-.mnote{font-size:11.5px;color:#94a3b8;margin-top:8px;line-height:1.65}
-.sec-h{display:flex;align-items:baseline;gap:10px;margin:18px 2px 8px;font-size:14px;
-  font-weight:700;color:#0f172a}
-.sec-h .sec-sub{font-size:11.5px;font-weight:500;color:#94a3b8}
+.mnote{font-size:11.5px;color:#8ba0b0;margin-top:8px;line-height:1.65}
+.sec-h{display:flex;align-items:baseline;gap:10px;margin:20px 2px 8px;font-size:15px;
+  font-weight:700;color:var(--txt);border-left:3px solid var(--accent);padding-left:9px}
+.sec-h .sec-sub{font-size:11.5px;font-weight:500;color:var(--muted)}
 .ltg{display:inline-block;border-radius:5px;padding:1px 7px;font-size:11px;font-weight:600;white-space:nowrap}
 .lt-saved{background:#dbeafe;color:#1e40af}
-.lt-trans{background:#f1f5f9;color:#475569}
+.lt-trans{background:#eef4f8;color:#496579}
 .lt-bwd{background:#fef3c7;color:#92400e}
 .lt-shmem{background:#fae8ff;color:#86198f}
 .lt-w{background:#dcfce7;color:#166534}
 .lt-io{background:#e0f2fe;color:#075985}
-tr.grp td{background:#f8fafc;font-weight:650;color:#334155}
-td.bytes{font-family:ui-monospace,Consolas,monospace;font-size:11.8px}
+tr.grp td{background:#eef4f8;font-weight:650;color:#435b6f}
+td.bytes{font-family:var(--mono);font-size:11.8px}
 .about table{font-size:12px}
 .about td,.about th{text-align:left;padding:4px 10px}
 .detcard summary{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;list-style:none}
 .detcard summary::-webkit-details-marker{display:none}
-.detcard summary::before{content:'▸';color:#94a3b8;font-size:12px}
+.detcard summary::before{content:'▸';color:#8ba0b0;font-size:12px}
 .detcard[open] summary::before{content:'▾'}
 .detcard summary .card-t{font-size:13px;font-weight:650}
 .detcard summary button{margin-left:auto}
@@ -148,19 +152,19 @@ td.bytes{font-family:ui-monospace,Consolas,monospace;font-size:11.8px}
 .card-h{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap;padding:10px 13px 2px}
 .card-t{font-size:13px;font-weight:650}
 .legend{padding:2px 13px 6px;display:flex;flex-wrap:wrap;gap:3px 12px}
-.lg{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:#475569;white-space:nowrap}
+.lg{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:#435b6f;white-space:nowrap}
 .sw{display:inline-block}
 .sw.line{width:16px;border-top:2.5px solid var(--c)}
 .sw.dash{width:16px;border-top:2.5px dashed var(--c)}
 .sw.box{width:10px;height:9px;background:var(--c);border-radius:2px}
 .chartmount{padding:0 8px 8px}
 .chartsvg{width:100%;height:auto;display:block}
-.nochart{display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px}
+.nochart{display:flex;align-items:center;justify-content:center;height:200px;color:#8ba0b0;font-size:13px}
 /* svg text */
-.grid{stroke:#e8edf3;stroke-width:1}
-.axis{stroke:#94a3b8;stroke-width:1}
-.ytick,.xtick{font-size:10.5px;fill:#64748b}
-.axlab{font-size:11px;fill:#475569;font-weight:600}
+.grid{stroke:#e4edf2;stroke-width:1}
+.axis{stroke:#8ba0b0;stroke-width:1}
+.ytick,.xtick{font-size:10.5px;fill:#61768a}
+.axlab{font-size:11px;fill:#435b6f;font-weight:600}
 .ann{font-size:8.5px}
 .reflab{font-size:9.5px;font-weight:600}
 /* ---------- table ---------- */
@@ -168,16 +172,16 @@ td.bytes{font-family:ui-monospace,Consolas,monospace;font-size:11.8px}
 .tblbar .sp{flex:1}
 .tblwrap{max-height:520px;overflow:auto;border-top:1px solid var(--line)}
 table{border-collapse:collapse;width:100%;font-size:12.3px}
-th{position:sticky;top:0;background:#f1f5f9;z-index:2;font-weight:600;color:#334155;
+th{position:sticky;top:0;background:#f1f6f9;z-index:2;font-weight:600;color:#435b6f;
   padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right}
 th:first-child,td:first-child{text-align:left}
-td{padding:5px 9px;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;
+td{padding:5px 9px;border-bottom:1px solid #edf1f5;text-align:right;white-space:nowrap;
   font-variant-numeric:tabular-nums}
-td.num{font-family:ui-monospace,Consolas,monospace;font-size:11.8px}
-tbody tr:hover{background:#f0f6ff}
-tr.best{background:#f0fdf4}
-tr.best:hover{background:#e5fbee}
-tr.epnew td{border-top:1px solid #dbe4ee}
+td.num{font-family:var(--mono);font-size:11.8px}
+tbody tr:hover{background:#f1f8fa}
+tr.best{background:#eaf6f0}
+tr.best:hover{background:#ddf2e7}
+tr.epnew td{border-top:1px solid #d8e9ee}
 .b{border-radius:5px;padding:1.5px 7px;font-size:11px;font-weight:600}
 .b-HCCS{background:#dcfce7;color:#166534}
 .b-RACK{background:#ffedd5;color:#9a3412}
@@ -187,12 +191,12 @@ tr.epnew td{border-top:1px solid #dbe4ee}
 .r-mb{color:#b91c1c}
 /* ---------- about / toast ---------- */
 details.about{margin:0 0 14px;background:var(--card);border:1px solid var(--line);
-  border-radius:10px;padding:10px 14px;font-size:12.8px;color:#475569}
-details.about summary{cursor:pointer;font-weight:600;color:#334155}
-details.about pre{background:#f8fafc;border:1px solid var(--line);border-radius:8px;
+  border-radius:8px;padding:10px 14px;font-size:12.8px;color:#435b6f}
+details.about summary{cursor:pointer;font-weight:600;color:#435b6f}
+details.about pre{background:#f6f9fb;border:1px solid var(--line);border-radius:7px;
   padding:10px 12px;font-size:12px;overflow:auto;line-height:1.7}
-#toast{position:fixed;right:18px;bottom:18px;background:#0f172a;color:#fff;padding:9px 16px;
-  border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:99}
+#toast{position:fixed;right:18px;bottom:18px;background:#163047;color:#fff;padding:9px 16px;
+  border-radius:7px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:99}
 #toast.show{opacity:.96}
 @media (max-width:960px){
   .layout{flex-direction:column}
@@ -204,10 +208,8 @@ details.about pre{background:#f8fafc;border:1px solid var(--line);border-radius:
 </head>
 <body>
 <header>
-  <h1>MoE 理论 Roofline 计算器</h1>
-  <div class="sub">GEMM 计算 vs 通信竞速 · 融合加速物理上限 · MegaMoe 显存/激活账本 —— 纯理论，不依赖 NPU。<br>
-    Roofline 页与 <code>roofline_probe.py</code> / <code>ep_probe.py</code> 数值一致；
-    显存页与 kernel workspace 布局（saved/transient/backward/SHMEM）逐字节一致，改配置即时出数</div>
+  <h1>MegaMoe 计算器</h1>
+  <div class="sub">Roofline 竞速 · 显存账本 · 实测 MFU —— 纯理论估算，不依赖 NPU</div>
 </header>
 <div id="err"></div>
 <div class="layout">
@@ -220,7 +222,7 @@ details.about pre{background:#f8fafc;border:1px solid var(--line);border-radius:
   <div class="row"><label>F 列表</label><input type="text" id="in-f" value="3072,4096,8192"></div>
   <div class="hint">FFN 中间维，逗号分隔，每档一条曲线</div>
 
-  <h3>计算口径与算力</h3>
+  <h3>计算量与算力</h3>
   <div class="seg" id="segMode">
     <button data-v="layer" class="active" title="fwd 6 RFK + bwd 16 RFK">整层 fwd+bwd · 22RFK</button>
     <button data-v="bwd" title="bwd 重计算口径">仅反向 · 16RFK</button>
@@ -255,12 +257,14 @@ details.about pre{background:#f8fafc;border:1px solid var(--line);border-radius:
 
 <main>
   <div class="tabbar" id="tabbar">
-    <button data-tab="roof" class="active">⏱ 理论 Roofline · 耗时 / 加速上限</button>
-    <button data-tab="mem">🧠 显存分析 · MegaMoe workspace 账本</button>
+    <button data-tab="mem" class="active">🧠 显存分析 · MegaMoe workspace 账本</button>
+    <button data-tab="mfu">📐 实测 MFU · 算力利用率</button>
+    <button data-tab="roof">⏱ 理论 Roofline · 耗时 / 加速上限</button>
   </div>
   <div id="tabRoofline">
   <div class="echo" id="echo"></div>
   <div class="kpis" id="kpis"></div>
+
 
   <div class="chartbar">
     <span class="lab">图表布局：</span>
@@ -293,7 +297,7 @@ details.about pre{background:#f8fafc;border:1px solid var(--line);border-radius:
   </div>
 
   <details class="about">
-    <summary>模型口径说明（与 roofline_probe.py / ep_probe.py 一致）</summary>
+    <summary>模型公式说明（与 roofline_probe.py / ep_probe.py 一致）</summary>
     <pre>C = coef·R·F·K / cube_TFLOPS          ← 全层 GEMM 时间（ms），R = M·topK
                                         整层 coef=22（fwd 6 + bwd 16）；仅反向 coef=16（重计算口径）
 N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd × dispatch/combine），单位 ms
@@ -308,17 +312,6 @@ N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd
 流量 = M·topK·K·2B（BF16），MB ÷ (GB/s) = ms</pre>
   </details>
 
-  <div class="card" id="mfuForm">
-    <div class="tblbar"><div class="card-t">实测 MFU（输入 bench 耗时，对比 roofline 上限）</div></div>
-    <div class="mfurow">
-      <label>实测耗时 <input type="number" id="in-mfu-ms" min="0" step="0.01" placeholder="ms"> ms/次</label>
-      <label>EP <input type="number" id="in-mfu-ep" min="1" step="1" value="8"></label>
-      <label>F <select id="in-mfu-f"></select></label>
-      <span class="sec-sub">口径跟随上方"口径"切换 · FLOPs = coef·R·F·K（R = M·topK）· C / N 与数据表同行同源</span>
-    </div>
-    <div class="kpis" id="mfuKpis"></div>
-  </div>
-
   <div class="card">
     <div class="tblbar">
       <div class="card-t">全量数据表（<span id="rowcnt"></span> 行）</div>
@@ -331,8 +324,45 @@ N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd
   </div>
   </div><!-- /tabRoofline -->
 
+  <div id="tabMfu" style="display:none">
+    <div class="echo">MFU = (coef·R·F·K ÷ 实测耗时) ÷ peak TFLOPS。coef：前向 6 · 反向 12（gate/up 已保存，免重算）或 16（重算 GMM1）。只依赖 M / topK / F / K / cube / 计算量范围 / 实测耗时——与互连带宽、拓扑无关。</div>
+    <div class="card" id="mfuForm">
+      <div class="tblbar"><div class="card-t">实测 MFU</div></div>
+      <div class="mfurow">
+        <span class="cfglab">阶段</span>
+        <div class="seg" id="segMfuMode" style="margin:0;max-width:330px">
+          <button data-v="fwd">前向 · 6RFK</button>
+          <button data-v="bwd">反向</button>
+          <button data-v="layer" class="active">前向+反向</button>
+        </div>
+        <span class="cfglab">gate/up</span>
+        <div class="seg" id="segMfuSave" style="margin:0;max-width:330px">
+          <button data-v="save" class="active">保存 · 免重算</button>
+          <button data-v="recompute">重算 GMM1</button>
+        </div>
+        <label>实测耗时 <input type="number" id="in-mfu-ms" min="0" step="0.01" placeholder="ms"> ms/次</label>
+        <label>baseline 耗时 <input type="number" id="in-mfu-base" min="0" step="0.01" placeholder="可选 ms"> ms/次</label>
+        <label>F <select id="in-mfu-f"></select></label>
+        <span class="sec-sub" id="mfuCoefNote"></span>
+      </div>
+      <div class="kpis" id="mfuKpis"></div>
+    </div>
+    <details class="card detcard" style="margin-bottom:14px">
+      <summary><span class="card-t">与 roofline 上限对比（可选 · 需要互连带宽与拓扑，见侧栏）</span></summary>
+      <div class="mfurow">
+        <label>EP <input type="number" id="in-mfu-ep" min="1" step="1" value="8"></label>
+        <span class="sec-sub">通信 N 与上限曲线随侧栏 HCCS/RACK/CAGE 带宽与 R_node/R_rack 拓扑变化</span>
+      </div>
+      <div class="kpis" id="mfuRoofKpis"></div>
+      <div class="charts" style="max-width:680px">
+        <div class="card"><div class="card-h"><div class="card-t">MFU 上限 vs EP（当前 F；虚线 = 实测 MFU）</div></div>
+          <div class="legend" id="lm4"></div><div class="chartmount" id="m4"></div></div>
+      </div>
+    </details>
+  </div>
+
   <div id="tabMemory" style="display:none">
-    <div class="sec-h">① 配置<span class="sec-sub">符号与口径见页底 ⑥ · gate/up 模式 = 运行时 MEGAMOE_SAVE_GMM1_OUTPUT（默认 bf16）</span></div>
+    <div class="sec-h">① 配置<span class="sec-sub">符号与约定见页底 ⑥ · gate/up 模式 = 运行时 MEGAMOE_SAVE_GMM1_OUTPUT（默认 bf16）</span></div>
     <div class="card memcfg" id="memForm">
       <div class="memrow0">
         <span class="cfglab">路径</span>
@@ -356,7 +386,7 @@ N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd
         <div class="f"><label>topK</label><input type="number" id="mm-topk" min="1" step="1" value="16"></div>
         <div class="f"><label>EP（rank 数）</label><input type="number" id="mm-ep" min="1" step="1" value="8"></div>
         <div class="f"><label>EPR（expert/rank）</label><input type="number" id="mm-epr" min="1" step="1" value="4"></div>
-        <div class="f"><label>maxRecvTokens（接收容量）</label><input type="number" id="mm-r" min="1" step="128" value="65536"></div>
+        <div class="f"><label>R（maxRecvTokens 接收容量）</label><input type="number" id="mm-r" min="1" step="128" value="65536"></div>
         <div class="f"><label>HBM（GB/rank）</label><input type="number" id="mm-hbm" min="1" step="1" value="64"></div>
       </div>
       <div class="memrow2">
@@ -408,7 +438,7 @@ N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd
     </details>
 
     <details class="about">
-      <summary>⑥ 口径 · 符号表 · 锚点自检（点击展开）</summary>
+      <summary>⑥ 约定 · 符号表 · 锚点自检（点击展开）</summary>
       <table>
         <thead><tr><th>符号</th><th>含义</th><th>来源 / 约束</th></tr></thead>
         <tbody>
@@ -417,16 +447,17 @@ N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd
           <tr><td><b>F</b></td><td>SwiGLU 中间宽（gate/up 各宽 F）</td><td>weight2.shape[2]；本页输入；与 Roofline 页的 F 同义</td></tr>
           <tr><td><b>N</b></td><td>W1 输出宽 = 2F（gate+up 拼接）</td><td>weight1.shape[1]；须 %512==0</td></tr>
           <tr><td><b>T</b></td><td>topK（每 token 路由的 expert 数）</td><td>topk_ids.shape[1]</td></tr>
-          <tr><td><b>P</b></td><td>EP 并行度（rank 数 / world size）</td><td>= 面板的 EP</td></tr>
-          <tr><td><b>E</b></td><td>每 rank 本地 expert 数</td><td>= 面板的 EPR；weight1.shape[0]；总 expert = P×E</td></tr>
-          <tr><td><b>S</b></td><td>计数表行宽（int32 元素数，含对齐）</td><td>S = AlignUp(P·E, 128)；整表 = [P 行 × S 列]</td></tr>
-          <tr><td><b>maxRecvTokens</b>（R）</td><td>接收容量</td><td>balanced = Align128(M·T)；random/imbalanced ≈ M·P·min(E,T)</td></tr>
+          <tr><td><b>EP</b></td><td>EP 并行度（rank 数 / world size）</td><td>= 面板的 EP 输入</td></tr>
+          <tr><td><b>EPR</b></td><td>每 rank 本地 expert 数</td><td>= 面板的 EPR 输入；weight1.shape[0]；总 expert = EP×EPR</td></tr>
+          <tr><td><b>S</b></td><td>计数表行宽（int32 元素数，含对齐）</td><td>S = AlignUp(EP·EPR, 128)；整表 = [EP 行 × S 列]</td></tr>
+          <tr><td><b>R</b>（maxRecvTokens）</td><td>接收容量</td><td>balanced = Align128(M·T)；random/imbalanced ≈ M·EP·min(EPR,T)</td></tr>
           <tr><td>GiB / MiB</td><td>1024 进制字节</td><td>HBM 容量按 10⁹（GB）计</td></tr>
         </tbody>
       </table>
       <p><b>易混点</b>：① 显存页的 <b>R</b>（接收容量，决定 [R,K]/[R,F] 等分配）≠ Roofline 页公式里的
-      <b>R = M·T</b>（总路由行数，算 FLOPs 用）；均衡路由下两者相等。② 公式的 P/E 是 kernel 头文件的
-      单字母约定，与面板的 EP/EPR 同义。③ 计数表 [P,S]：第 src 行前 P·E 个有效，其余为对齐 padding。</p>
+      <b>R = M·T</b>（总路由行数，算 FLOPs 用）；均衡路由下两者相等。
+      ② 账本公式直接使用面板字段名 EP/EPR——kernel 头文件里对应记号是 P/E。
+      ③ 计数表 [EP,S]：第 src 行前 EP·EPR 个有效，其余为对齐 padding。</p>
       <p><b>字节公式来源</b>：<code>kernels/mega_moe_bf16/include/mega_moe_training_workspace.h</code>、
       <code>mega_moe_workspace_info.h</code>、<code>mega_moe_base.h</code>（PeermemInfo）、
       <code>csrc/ops/mega_moe_bf16_mgroup.cpp</code> 与
@@ -516,11 +547,11 @@ function memModel(c){
   const embed = c.variant === 'mgroup';
   const savedDefs = [
     ...(embed ? [['ptrA · packed X', '[R,K] BF16', 'Align512(2·R·K)', alignUpTo(2*R*K, 512), 'saved', '反向 GMM1 重算与 dW1 直接读取；Dispatch 直接写入（MGroup 仍嵌入 saved）']] : []),
-    ['ptrcumsumMM', '[P,E] i32', 'Align512(4·P·E)', alignUpTo(4*P*E, 512), 'saved', '各 expert 按来源 rank 的累计行数 / 分组'],
+    ['ptrcumsumMM', '[EP,EPR] i32', 'Align512(4·EP·EPR)', alignUpTo(4*P*E, 512), 'saved', '各 expert 按来源 rank 的累计行数 / 分组'],
     ['expandedRowIdx', 'A256(M)·T i32', '4·Align256(M)·T', 4*M256*T, 'saved', 'sorted→original 路由映射；反向重排 dY'],
     ['expandedRowIdxGather', 'A256(M)·T i32', '4·Align256(M)·T', 4*M256*T, 'saved', 'original→sorted 逆映射；UnpermuteBackward / TopkGrad'],
-    ['ptrSumBeforeRank', '[P,S] i32', '4·S（S=Align128(P·E)）', 4*S, 'saved', '来源 rank 内本 rank 各 expert 的起点（跨 rank 寻址）'],
-    ['ptrSavedTokenPerExpert', '[P,S] i32', 'Align512(4·P·S)', alignUpTo(4*P*S, 512), 'saved', '完整计数表快照；反向 Restore 回 peermem'],
+    ['ptrSumBeforeRank', '[EP,S] i32', '4·S（S=Align128(EP·EPR)）', 4*S, 'saved', '来源 rank 内本 rank 各 expert 的起点（跨 rank 寻址）'],
+    ['ptrSavedTokenPerExpert', '[EP,S] i32', 'Align512(4·EP·S)', alignUpTo(4*P*S, 512), 'saved', '完整计数表快照；反向 Restore 回 peermem'],
     ...(embed ? [['ptrDispatchedTopkWeights', '[R] BF16', 'Align512(2·R)', alignUpTo(2*R, 512), 'saved', '与 packed X 同行序的权重；epilogue Hp=p·H / dH=p·dHp']] : []),
     ['ptrBwProgress', '[256] i32', 'Align128(1024)', alignUpTo(1024, 128), 'saved', '反向诊断进度码（非数学输入）'],
   ];
@@ -599,15 +630,15 @@ function memModel(c){
   // ④ SHMEM 对称窗：通信层持有，前向/反向复用（普通/MGroup 同布局）
   const shmemDefs = (c.variant === 'udma') ? [
     ['控制/同步保留区', '—', '60 KiB', 61440, 'shmem', 'SHMEM 对称窗口保留区'],
-    ['ptrTokenPerExpert 计数表', '[P,S] i32', '4·P·S', 4*P*S, 'shmem', '跨 rank 路由计数（可变；复用前快照到 saved）'],
+    ['ptrTokenPerExpert 计数表', '[EP,S] i32', '4·EP·S', 4*P*S, 'shmem', '跨 rank 路由计数（可变；复用前快照到 saved）'],
     ['dispatch/combine 数据槽', '2×[M·T,K] BF16', '2·(2·M·T·K)', 2*(2*M*T*K), 'shmem', '发送 / 返回数据区'],
-    ['dispatch 信号区', 'P·E', 'Align512(8·P·E)+512', alignUpTo(8*P*E, 512) + 512, 'shmem', 'UDMA 信号'],
+    ['dispatch 信号区', 'EP·EPR', 'Align512(8·EP·EPR)+512', alignUpTo(8*P*E, 512) + 512, 'shmem', 'UDMA 信号'],
     ['激活接收区 ptrA1', '[R,K] BF16', 'Align512(2·R·K)', alignUpTo(2*R*K, 512), 'shmem', 'Dispatch 接收 / GMM1 输入；Combine 复用'],
     ['routed TopK 权重', '[M·T] BF16', 'Align512(2·M·T)', alignUpTo(2*M*T, 512), 'shmem', '来源 rank 排序后权重，MTE 拉取源'],
   ] : [
     ['同步/控制保留区', '—', '72 KiB', 73728, 'shmem', '60KiB 旧头 + 4KiB rank 同步 + 8KiB AIV 生成计数（train PR 更新后）；EP≥512 且 EPR≤8 时另加紧凑计数收件箱'],
     ...((P >= 512 && E > 0 && E <= 8) ? [['紧凑计数收件箱', 'P×64B 包 + 72×i32', 'Align512(64·P)+Align512(288)', alignUpTo(64*P, 512) + alignUpTo(288, 512), 'shmem', 'EP≥512 自动启用：每目的 rank 一个 64B 计数包，解包后仍写同一 dense 计数表']] : []),
-    ['ptrTokenPerExpert 计数表', '[P,S] i32', '4·P·S', 4*P*S, 'shmem', '跨 rank 路由计数（可变；复用前快照到 saved）'],
+    ['ptrTokenPerExpert 计数表', '[EP,S] i32', '4·EP·S', 4*P*S, 'shmem', '跨 rank 路由计数（可变；复用前快照到 saved）'],
     ['ptrA0 dispatch 发送槽', '[M·T,K] BF16', '2·M·T·K', 2*M*T*K, 'shmem', 'InitRouting 结果 / 发送区'],
     ['ptrRoutedTopkWeights', '[M·T] BF16', 'Align512(2·M·T)', alignUpTo(2*M*T, 512), 'shmem', '来源 rank 排序后权重'],
     ['ptrD combine 返回槽', '[M·T,K] BF16', '2·M·T·K', 2*M*T*K, 'shmem', 'combine 返回数据区'],
@@ -942,7 +973,7 @@ function render(){
   const modeName = cfg.mode === 'bwd' ? '仅反向 (16RFK + 4趟)' : '整层 (22RFK + 4趟)';
 
   // ---- echo ----
-  let echo = `[config] M=${cfg.m} K=${cfg.k} topK=${cfg.topk} · 口径=${modeName} · cube=${cfg.cube} TFLOPS\n` +
+  let echo = `[config] M=${cfg.m} K=${cfg.k} topK=${cfg.topk} · 计算量=${modeName} · cube=${cfg.cube} TFLOPS\n` +
     `BW(单向): HCCS=${cfg.bwHccs} / 柜内=${cfg.bwRack} / 跨柜=${cfg.bwCage} GB/s · ` +
     `R_node=${cfg.rn} R_rack=${cfg.rr} · 每向毛流量 ${fmt(totalMB, 1)} MB/rank`;
   if (skipped.length)
@@ -1108,31 +1139,75 @@ function renderMfu(){
   const f = +fsel.value || cfg.fList[0];
   const ep = parseInt(document.getElementById('in-mfu-ep').value, 10);
   const ms = parseFloat(document.getElementById('in-mfu-ms').value);
+  const mMode = (document.querySelector('#segMfuMode .active') || {}).dataset
+    ? document.querySelector('#segMfuMode .active').dataset.v : 'layer';
+  const mSave = (document.querySelector('#segMfuSave .active') || {}).dataset
+    ? document.querySelector('#segMfuSave .active').dataset.v : 'save';
+  const bwdCoef = mSave === 'save' ? 12 : 16;          // 保存 gate/up → 12RFK；重算 GMM1 → 16RFK
+  const stageName = { fwd: '前向', bwd: '反向', layer: '前向+反向' }[mMode] || '前向+反向';
+  const coef = mMode === 'fwd' ? 6 : (mMode === 'bwd' ? bwdCoef : 6 + bwdCoef);
+  const modeName = mMode === 'fwd' ? stageName : `${stageName}（gate/up ${mSave === 'save' ? '已保存' : '重算'}）`;
+  const legs = mMode === 'layer' ? 4 : 2;
+  const coefNote = document.getElementById('mfuCoefNote');
+  if (coefNote) coefNote.textContent =
+    `coef = ${coef}RFK（${mMode === 'fwd' ? '前向 6' : mMode === 'bwd'
+      ? `反向 ${bwdCoef}：${mSave === 'save' ? 'gate/up 已存，免 GMM1 重算' : '重算 GMM1'}`
+      : `前向 6 + 反向 ${bwdCoef}`}）· M/K/topK/cube 在左侧栏`;
   const R = cfg.m * cfg.topk;
-  const flops = cfg.coef * R * f * cfg.k;                       // FLOP / 次
+  const flops = coef * R * f * cfg.k;                           // FLOP / 次
   const cMs = flops / (cfg.cube * 1e12) * 1e3;                  // 计算地板（= tCompute）
   const row = modelAnalyze(Object.assign({}, cfg, { eps: [ep] })).rows.find(r => r.f === f);
-  const nMs = row ? row.tComm : null;
+  const nMs = row ? row.tWay * legs : null;                     // 通信按口径折算趟数
   const tIdeal = nMs === null ? null : Math.max(cMs, nMs);
   const tSerial = nMs === null ? null : cMs + nMs;
   const mfu = ms > 0 ? flops / (ms * 1e-3) / 1e12 / cfg.cube * 100 : null;
   const tf = ms > 0 ? flops / (ms * 1e-3) / 1e12 : null;
+  const baseMs = parseFloat(document.getElementById('in-mfu-base').value);
+  const baseMfu = baseMs > 0 ? flops / (baseMs * 1e-3) / 1e12 / cfg.cube * 100 : null;
+  const speedup = ms > 0 && baseMs > 0 ? baseMs / ms : null;
   const fmt1 = x => x === null || x === undefined || !isFinite(x) ? '–' : (x >= 100 ? x.toFixed(1) : x.toFixed(2));
   const cards = [
-    { l: '实测 MFU', v: mfu === null ? '–' : `${mfu.toFixed(1)}<small>%</small>`,
+    { l: `实测 MFU（${modeName}）`, v: mfu === null ? '–' : `${mfu.toFixed(1)}<small>%</small>`,
       s: mfu === null ? '输入实测耗时后计算' :
-        `achieved ${tf.toFixed(1)} TFLOPS / peak ${cfg.cube} · 瓶颈${row.regime === 'compute-bound' ? '计算' : '通信'}（N:C=${row.ncRatio === null ? '–' : row.ncRatio.toFixed(2)}）` },
-    { l: '计算地板 C', v: `${fmt1(cMs)}<small> ms</small>`,
-      s: `${cfg.coef}·R·F·K = ${(flops / 1e12).toFixed(2)} TFLOP @ ${cfg.cube} TFLOPS` },
-    { l: `通信 N @ EP${isNaN(ep) ? '–' : ep}`, v: `${fmt1(nMs)}<small> ms</small>`,
-      s: row ? `瓶颈 ${row.bottleneck} · 4 趟 × ${row.tWay.toFixed(2)} ms` : 'EP 需 ≥ 节点内卡数且为其整数倍' },
-    { l: '融合上限 max(C,N)', v: `${fmt1(tIdeal)}<small> ms</small>`,
-      s: ms > 0 && tIdeal
-        ? `实测/上限 ×${(ms / tIdeal).toFixed(2)} · 串行 C+N ${fmt1(tSerial)} ms（×${(ms / tSerial).toFixed(2)}）`
-        : `串行 C+N ${fmt1(tSerial)} ms · 重叠率 ${row ? row.overlapPct.toFixed(0) : '–'}%` },
+        `achieved ${tf.toFixed(1)} TFLOPS / peak ${cfg.cube} TFLOPS` },
+    { l: '计算地板 C（无通信）', v: `${fmt1(cMs)}<small> ms</small>`,
+      s: `${coef}·R·F·K = ${(flops / 1e12).toFixed(2)} TFLOP @ ${cfg.cube} TFLOPS` },
+    ...(baseMfu !== null ? [{ l: '加速比 vs baseline（同口径）',
+      v: `×${speedup.toFixed(2)}`,
+      s: `baseline MFU ${baseMfu.toFixed(1)}%（${fmt1(baseMs)} ms）· baseline 距计算地板 ×${(baseMs / cMs).toFixed(2)}` }] : []),
   ];
   box.innerHTML = cards.map(k =>
     `<div class="kpi"><div class="kl">${k.l}</div><div class="kv">${k.v}</div><div class="ks">${k.s}</div></div>`).join('');
+  const roofBox = document.getElementById('mfuRoofKpis');
+  const roofCards = [
+    { l: `通信 N @ EP${isNaN(ep) ? '–' : ep}`, v: `${fmt1(nMs)}<small> ms</small>`,
+      s: row ? `瓶颈 ${row.bottleneck} · ${legs} 趟 × ${row.tWay.toFixed(2)} ms` : 'EP 需 ≥ 节点内卡数且为其整数倍' },
+    { l: '融合上限 max(C,N)', v: `${fmt1(tIdeal)}<small> ms</small>`,
+      s: ms > 0 && tIdeal
+        ? `实测/上限 ×${(ms / tIdeal).toFixed(2)} · 串行 C+N ${fmt1(tSerial)} ms（×${(ms / tSerial).toFixed(2)}）`
+        : `串行 C+N ${fmt1(tSerial)} ms · 重叠率 ${row ? (Math.min(cMs, nMs) / Math.max(cMs, nMs) * 100).toFixed(0) : '–'}%` },
+  ];
+  roofBox.innerHTML = roofCards.map(k =>
+    `<div class="kpi"><div class="kl">${k.l}</div><div class="kv">${k.v}</div><div class="ks">${k.s}</div></div>`).join('');
+  const rowsAll = modelAnalyze(cfg).rows.filter(r => r.f === f);
+  chart('m4', {
+    xCats: rowsAll.map(r => String(r.ep)), yLabel: 'MFU 上限 %',
+    xTitle: 'EP（卡数）', xTag: 'EP',
+    series: [
+      { name: `MFU 上限（${modeName}）`, color: '#176b82', w: 2.2,
+        vals: rowsAll.map(r => cMs / Math.max(cMs, r.tWay * legs) * 100),
+        annotate: 'ends', fmtA: v => v.toFixed(0), tip: v => v.toFixed(1) + '%' },
+      ...(ms > 0 ? [{ name: '实测 MFU（当前耗时）', color: '#b91c1c', dash: true,
+        vals: rowsAll.map(() => mfu) }] : []),
+      ...(baseMfu !== null ? [{ name: 'baseline MFU', color: '#f59e0b', dash: true,
+        vals: rowsAll.map(() => baseMfu) }] : []),
+    ]
+  });
+  setLegend('lm4', [
+    { name: `MFU 上限（${modeName}）`, color: '#176b82' },
+    ...(ms > 0 ? [{ name: '实测 MFU（当前耗时）', color: '#b91c1c', style: 'dash' }] : []),
+    ...(baseMfu !== null ? [{ name: 'baseline MFU', color: '#f59e0b', style: 'dash' }] : []),
+  ]);
 }
 
 // ---------- URL hash（分享/收藏配置） ----------
@@ -1447,7 +1522,7 @@ function renderMemory(){
      c.variant === 'normal' ? 'F→B·可释放' : 'F→B'],
     ['路由元数据（cumsum/双索引/sumBeforeRank）', srow('ptrcumsumMM') + srow('expandedRowIdx') + srow('expandedRowIdxGather') + srow('ptrSumBeforeRank'),
      '存', '直接读', '反向寻址、dY 重排、Unpermute、跨 rank 传输边界全部依赖，量小必须存', 'F→B'],
-    ['完整计数表快照 [P,S]', srow('ptrSavedTokenPerExpert'), '存', 'Restore',
+    ['完整计数表快照 [EP,S]', srow('ptrSavedTokenPerExpert'), '存', 'Restore',
      '前向结束前先 Save 再清零 peermem；反向 Restore 回 peermem 复用地址计算。counts[E] 总数不能替代（丢来源边界）', 'F→B'],
     ['W1 / W2', L.wT, 'ctx 持有', '直接读',
      'autograd save_for_backward 持有，不复制进 saved-state', '全程'],
@@ -1546,6 +1621,18 @@ document.getElementById('cfgForm').addEventListener('input', () => {
   rt = setTimeout(render, 140);      // 实时刷新（轻量去抖）
 });
 document.getElementById('mfuForm').addEventListener('input', renderMfu);
+document.querySelectorAll('#segMfuMode button').forEach(b =>
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#segMfuMode button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    renderMfu();
+  }));
+document.querySelectorAll('#segMfuSave button').forEach(b =>
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#segMfuSave button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    renderMfu();
+  }));
 document.querySelectorAll('#segMode button').forEach(b =>
   b.addEventListener('click', () => {
     document.querySelectorAll('#segMode button').forEach(x => x.classList.remove('active'));
@@ -1605,11 +1692,12 @@ $('#btn-link').addEventListener('click', () => copyText(location.href));
 // ---------- Tab 切换 ----------
 function setTab(t){
   document.body.classList.toggle('mem', t === 'mem');
-  $('#tabRoofline').style.display = t === 'mem' ? 'none' : '';
+  $('#tabRoofline').style.display = t === 'roof' ? '' : 'none';
   $('#tabMemory').style.display = t === 'mem' ? '' : 'none';
+  $('#tabMfu').style.display = t === 'mfu' ? '' : 'none';
   document.querySelectorAll('#tabbar button').forEach(b =>
     b.classList.toggle('active', b.dataset.tab === t));
-  if (t === 'mem') renderMemory(); else render();
+  if (t === 'mem') renderMemory(); else if (t === 'mfu') renderMfu(); else render();
 }
 document.querySelectorAll('#tabbar button').forEach(b =>
   b.addEventListener('click', () => setTab(b.dataset.tab)));
@@ -1660,7 +1748,11 @@ document.querySelectorAll('details.detcard > summary').forEach(s =>
 // ---------- 启动 ----------
 (function init(){
   const p = new URLSearchParams(location.hash.slice(1));
-  if (p.get('tab') === 'mem'){
+  if (p.get('tab') === 'mfu'){
+    readHash();
+    render();
+    setTab('mfu');
+  } else if (p.get('tab') === 'mem'){
     applyCfgToInputs(PRESETS.roofline);
     applyMemInputs({
       m: +(p.get('m') || 4096), k: +(p.get('k') || 7168),
@@ -1673,10 +1765,11 @@ document.querySelectorAll('details.detcard > summary').forEach(s =>
     render();
     setTab('mem');
   } else {
-    if (!readHash()) applyCfgToInputs(PRESETS.roofline);
+    const hadHash = readHash();          // 旧 Roofline 分享链接（无 tab 参数）仍落 Roofline 页
+    if (!hadHash) applyCfgToInputs(PRESETS.roofline);
     render();
     renderMemory();
-    setTab('roof');
+    setTab(hadHash ? 'roof' : 'mem');    // 默认页 = 显存分析
   }
   initAnchorBadge();
 })();

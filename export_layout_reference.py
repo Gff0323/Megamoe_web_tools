@@ -1,19 +1,36 @@
 #!/usr/bin/env python3
 """导出 MegaMoe workspace 布局参考值(JSON)，供 verify_model.mjs 对账网页显存模型。
 
-权威来源：
-  - test/megamoe_bf16_test/test_workspace_layout.py   （saved 四档 / transient / UDMA / backward / python 对称窗）
-  - kernels/mega_moe_bf16/include/mega_moe_training_workspace.h   （saved gate/up 追加区 + Dispatch tile ready）
-  - csrc/ops/mega_moe_bf16_mgroup.cpp                （MGroup ready 追加区）
-  - kernels/mega_moe_bf16/include/mega_moe_base.h    （PeermemInfo：普通/MGroup SHMEM 布局）
+本仓库（megamoe_web_tools）是独立的网页工具仓，**不包含** MegaMoe 源码；
+公式的权威来源在 MegaMoe 仓库里，通过 --repo-root 指向它（或设 MEGAMOE_REPO 环境变量）：
 
-用法：python export_layout_reference.py > layout_ref.json
+  <repo-root>/test/megamoe_bf16_test/test_workspace_layout.py   （saved/transient/backward/SHMEM 公式）
+  <repo-root>/kernels/mega_moe_bf16/include/mega_moe_training_workspace.h
+  <repo-root>/kernels/mega_moe_bf16/include/mega_moe_base.h      （PeermemInfo）
+
+用法：
+  python export_layout_reference.py --repo-root C:\\MegaMoe\\roofline_web > ref/layout_ref.json
+  MEGAMOE_REPO=C:\\MegaMoe\\roofline_web python export_layout_reference.py > ref/layout_ref.json
 """
+import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "megamoe_bf16_test"))
+_ap = argparse.ArgumentParser(description=__doc__,
+                              formatter_class=argparse.RawDescriptionHelpFormatter)
+_ap.add_argument("--repo-root", default=os.environ.get("MEGAMOE_REPO", ""),
+                 help="MegaMoe 仓库根目录（含 test/ 与 kernels/）；也可用 MEGAMOE_REPO 环境变量")
+_args = _ap.parse_args()
+if not _args.repo_root:
+    sys.exit("[error] 需要 --repo-root 或 MEGAMOE_REPO 指向 MegaMoe 仓库")
+_repo = Path(_args.repo_root).resolve()
+_layout_dir = _repo / "test" / "megamoe_bf16_test"
+if not (_layout_dir / "test_workspace_layout.py").exists():
+    sys.exit(f"[error] 找不到 {_layout_dir / 'test_workspace_layout.py'}")
+
+sys.path.insert(0, str(_layout_dir))
 from test_workspace_layout import (  # noqa: E402
     training_saved_state_size,
     forward_transient_workspace_size,

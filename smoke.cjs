@@ -17,11 +17,13 @@ for (const [nm, pat] of [["CSS tabbar", ".tabbar{"], ["CSS memcfg", ".memcfg .gr
   ["CSS ltg", ".ltg{"], ["CSS detcard", ".detcard summary{"],
   ["CSS kbar", ".kbar{"], ["CSS kbrk", ".kbrk{"]])
   ok(html.includes(pat), nm);
-for (const id of ["tabRoofline", "tabMemory", "memKpis", "memTbl", "memDecide", "mm-csv",
-  "mm-anchor", "m1", "m2", "m3", "ch1", "in-m", "mm-hbm", "mm-f", "mm-r",
-  "mfuForm", "in-mfu-ms", "in-mfu-ep", "in-mfu-f", "mfuKpis"])
+for (const id of ["tabRoofline", "tabMemory", "tabMfu", "memKpis", "memTbl", "memDecide", "mm-csv",
+  "mm-anchor", "m1", "m2", "m3", "m4", "ch1", "in-m", "mm-hbm", "mm-f", "mm-r",
+  "mfuForm", "in-mfu-ms", "in-mfu-base", "in-mfu-ep", "in-mfu-f", "mfuKpis", "mfuRoofKpis"])
   ok(html.includes(`id="${id}"`), `容器 id=${id}`);
 ok(html.includes("实测 MFU"), "MFU 卡片标题");
+ok(html.includes("segMfuMode") && html.includes("segMfuSave"), "MFU 阶段 × gate/up 双维度选择");
+ok(html.includes("保存 · 免重算") && html.includes("重算 GMM1"), "MFU 反向 12/16RFK 可选");
 ok(html.includes("前向显存峰值 / rank"), "KPI 前向峰值卡");
 ok(html.includes("反向显存峰值 / rank"), "KPI 反向峰值卡");
 ok(html.includes("SHMEM 额度（= local_mem_size）"), "KPI SHMEM 额度卡");
@@ -34,6 +36,7 @@ ok(!html.includes("floor 富余"), "已删口径：floor 富余不回潮");
 ok(!html.includes("可驻留 micro-batch（"), "已删口径：可驻留卡不回潮");
 ok(html.includes("同步/控制保留区") && html.includes("72 KiB"), "SHMEM 同步头口径");
 ok(html.includes("紧凑计数收件箱"), "EP≥512 紧凑收件箱口径");
+ok(html.includes("R（maxRecvTokens 接收容量）"), "面板 R 符号对齐");
 ok(html.includes("生命周期") && html.includes("F→B") && html.includes("仅 B") && html.includes("仅 F"), "决策表生命周期列");
 ok(html.includes("xTitle: '训练阶段（每 rank）'"), "M1 xTitle");
 ok(html.includes("peakMark: true") && html.includes("↑ 峰值"), "M1 峰值标注");
@@ -104,14 +107,28 @@ const code = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).
   " document.querySelector('#segVar .active').dataset.v = 'udma'; setTab('mem');" +
   " const kpisU = document.getElementById('memKpis').innerHTML;" +
   " const m1nU = document.getElementById('m1').children.length;" +
-  " return { kpis, m1n, m3n, tbl, kpisU, m1nU };" +
+  " setTab('mfu');" +
+  " const m4n = document.getElementById('m4').children.length;" +
+  " const mfuTabShown = document.getElementById('tabMfu').style.display === '';" +
+  " const mfuK = document.getElementById('mfuKpis').innerHTML;" +
+  " return { kpis, m1n, m3n, tbl, kpisU, m1nU, m4n, mfuTabShown, mfuK };" +
   "})();";
 // MFU 运行时：init 已随 render() 渲染；再注入实测耗时验证数值路径
-const code2 = code.replace("return { kpis, m1n, m3n, tbl, kpisU, m1nU };",
+const code2 = code.replace("return { kpis, m1n, m3n, tbl, kpisU, m1nU, m4n, mfuTabShown, mfuK };",
   " const mfu = document.getElementById('mfuKpis').innerHTML;" +
-  " document.getElementById('in-mfu-ms').value = '100'; renderMfu();" +
+   " document.getElementById('in-mfu-ms').value = '100';" +
+  " document.getElementById('in-mfu-base').value = '280'; renderMfu();" +
   " const mfu2 = document.getElementById('mfuKpis').innerHTML;" +
-  " return { kpis, m1n, m3n, tbl, kpisU, m1nU, mfu, mfu2 };");
+  " const layerSave = document.getElementById('mfuCoefNote').textContent;" +
+  " document.querySelector('#segMfuMode .active').dataset.v = 'fwd'; renderMfu();" +
+  " const mfuF = document.getElementById('mfuKpis').innerHTML;" +
+  " const mfuR = document.getElementById('mfuRoofKpis').innerHTML;" +
+  " document.querySelector('#segMfuMode .active').dataset.v = 'bwd';" +
+  " document.querySelector('#segMfuSave .active').dataset.v = 'save'; renderMfu();" +
+  " const bwdSave = document.getElementById('mfuCoefNote').textContent;" +
+  " document.querySelector('#segMfuSave .active').dataset.v = 'recompute'; renderMfu();" +
+  " const bwdRec = document.getElementById('mfuCoefNote').textContent;" +
+  " return { kpis, m1n, m3n, tbl, kpisU, m1nU, m4n, mfuTabShown, mfuK, mfu, mfu2, mfuF, mfuR, layerSave, bwdSave, bwdRec };");
 let P = null, runErr = null;
 try { P = new Function(code2)() || globalThis.__smoke; } catch (e) { runErr = e; }
 
@@ -125,8 +142,15 @@ else {
   ok((P.kpis || "").includes("同步/控制保留区") && (P.kpis || "").includes("发送槽"), "运行时：normal SHMEM 构成条");
   ok((P.tbl || "").includes("同步/控制保留区"), "运行时：账本同步头行");
   ok((P.kpisU || "").includes("ptrA1"), "运行时：UDMA 分支渲染");
-  ok((P.mfu || "").includes("计算地板 C") && (P.mfu || "").includes("通信 N"), "运行时：MFU C/N 卡");
+  ok((P.mfu || "").includes("计算地板 C") && !(P.mfu || "").includes("通信 N"), "运行时：MFU 核心卡（无通信依赖）");
+  ok((P.mfuR || "").includes("通信 N") && (P.mfuR || "").includes("融合上限"), "运行时：roofline 对比卡（折叠区）");
   ok((P.mfu2 || "").includes("%") && (P.mfu2 || "").includes("TFLOPS"), "运行时：MFU 数值计算");
+  ok(P.m4n === 1 && P.mfuTabShown === true, "运行时：MFU 独立页渲染");
+  ok((P.mfuK || "").includes("计算地板 C"), "运行时：MFU 页 KPI");
+  ok((P.mfuF || "").includes("6·R·F·K"), "运行时：前向口径切换（6RFK）");
+ok((P.layerSave || "").includes("coef = 18RFK"), "运行时：前向+反向+保存 = 18RFK");
+ok((P.bwdSave || "").includes("coef = 12RFK"), "运行时：反向+保存 = 12RFK");
+ok((P.bwdRec || "").includes("coef = 16RFK"), "运行时：反向+重算 = 16RFK");
   ok(P.m1nU === 1, "运行时：UDMA M1 渲染 (" + P.m1nU + ")");
 }
 
