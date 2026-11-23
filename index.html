@@ -430,9 +430,9 @@ N = 4 × max(三条腿 流量÷带宽)          ← 每层 4 趟通信（fwd/bwd
       <div class="pnote" id="pipeFwdNote"></div>
       <div class="pnote" style="padding-top:0">
         <b>实测（all_rank_trace.json，rank0：M2048 H5120 F2304 topk6 EP8，33 波 × 32 group）：</b>
-        每波 3 个 GMM1 tile（均值 69 µs）由 AIC 连算，<b>GMM1 领先约一波</b>；GMM2（29 µs）落在后一波的 GMM1 之间，
+        稳态每波 <b>2 个 GMM1 tile</b>（首波 3 个，各 69 µs）、波周期 228 µs；GMM2（29 µs）<b>要等下一波 GMM1 算完才开始</b>，
         SwiGLU（27 µs）紧跟本波 GMM1，Combine（21 µs）跟在 GMM2 之后。
-        <b>Dispatch（32 µs）会提前数波连发</b>；两端固定开销不小：INIT_ROUTING ≈ 92 µs、UNPERMUTE ≈ 183 µs。
+        <b>Dispatch（7 µs）以 ~11 µs 间隔提前数波连发</b>（w0/w1/w2/w3 = 246/256/268/279 µs，比 GMM1 早 4 波以上）；两端固定开销不小：INIT_ROUTING ≈ 90 µs、UNPERMUTE ≈ 183 µs。
       </div>
       <div class="tblwrap" style="max-height:none;border-top:1px solid var(--line)">
         <table id="pipeFwdTbl"></table>
@@ -2033,8 +2033,10 @@ const SCHED_MEAS = {
   waveUs: 260,                       // 前向：3 个 GMM1 tile ≈ 210 + 余量
   waveUsBwd: 110,                    // 反向：dHp 43 + ready 间隔，逐块推进
   fwd: {
-    initRouting: 92, countExchange: 4, gatherTopk: 2, bufferInit: 1,
-    gmm1: 69, gmm2: 29, swiglu: 27, dispatch: 32, combine: 21,
+    // 实测（rank0 group_0）：波周期 228 µs、稳态 2 个 GMM1 tile（首波 3 个）、GMM2 落后 353 µs
+    waveUs: 228, lagGmm2: 353, swigluOffset: 80, dispatchGap: 11,
+    initRouting: 90, countExchange: 4, gatherTopk: 2, bufferInit: 1,
+    gmm1: 69, gmm2: 29, swiglu: 27, dispatch: 7, combine: 9,
     saveWeights: 7, reset: 0.4, unpermute: 183,
   },
   bwd: {
@@ -2045,7 +2047,7 @@ const SCHED_MEAS = {
 };
 
 function buildFwdSchematic(waves){
-  const M = SCHED_MEAS.fwd, P = SCHED_MEAS.waveUs;
+  const M = SCHED_MEAS.fwd, P = M.waveUs;
   const lanes = [
     { key: 'AIC',  label: 'AIC',  order: 0, events: [] },
     { key: 'AIV0', label: 'AIV0', order: 1, events: [] },
@@ -2053,43 +2055,42 @@ function buildFwdSchematic(waves){
   ];
   const put = (k, name, t0, dur) => lanes.find(l => l.key === k).events.push({ name, t0, dur });
 
-  // 前向固定开销（prologue）：两个 AIV 都在做
+  // 前向固定开销：两个 AIV 同步做 init routing，随后 count 交换 / 权重 gather
   put('AIV0', 'AIV_INIT_ROUTING', 0, M.initRouting);
   put('AIV1', 'AIV_INIT_ROUTING', 0, M.initRouting);
   put('AIV0', 'AIV_COUNT_EXCHANGE', M.initRouting + 4, M.countExchange);
   put('AIV1', 'AIV_GATHER_TOPK_W', M.initRouting + 4, M.gatherTopk);
   const base = M.initRouting + 8;
 
-  // AIV1：dispatch 会提前若干波（真实 trace 里 w0/w1/w2 连发）
-  for (let w = 0; w < waves; w++) put('AIV1', 'AIV_DISPATCH', base + w * 46, M.dispatch);
+  // AIV1：dispatch 提前且连发（真实间隔 ~11 µs，比 GMM1 早数波）
+  for (let w = 0; w < waves; w++) put('AIV1', 'AIV_DISPATCH', base + w * M.dispatchGap, M.dispatch);
 
+  const t0 = base + waves * M.dispatchGap + 8;   // GMM1 起点（dispatch 已提前跑完）
   for (let w = 0; w < waves; w++){
-    const t = base + M.dispatch + 6 + w * P;
-    // AIC：本波 3 个 GMM1 tile（领先）
-    put('AIC', 'AIC_GMM1', t, M.gmm1 * 3);
-    // AIV0：SwiGLU 紧跟本波 GMM1
-    put('AIV0', 'AIV_SWIGLU', t + M.gmm1 * 2, M.swiglu * 3);
-    // AIC：本波 GMM2 落后约一波（与下一波 GMM1 重叠）
-    put('AIC', 'AIC_GMM2', t + P * 0.95, M.gmm2 * 3);
-    // AIV1：本波 Combine 跟在 GMM2 之后
-    put('AIV1', 'AIV_COMBINE', t + P * 0.95 + M.gmm2 * 3, M.combine);
+    const t = t0 + w * P;
+    const tiles = w === 0 ? 3 : 2;               // 首波 3 个 tile，稳态 2 个
+    put('AIC',  'AIC_GMM1', t, M.gmm1 * tiles);
+    put('AIV0', 'AIV_SWIGLU', t + M.swigluOffset, M.swiglu * tiles);
+    // GMM2 落后约一波：等下一波的 GMM1 算完才轮到它（实测 647 ≈ GMM1(w1) 507+138）
+    const g2 = t + P + M.gmm1 * 2 + 8;
+    put('AIC',  'AIC_GMM2', g2, M.gmm2 * tiles);
+    put('AIV1', 'AIV_COMBINE', g2 + M.gmm2 * tiles + 106, M.combine);
   }
 
-  // epilogue：保存 dispatch 权重 → reset → unpermute（真实 trace 里 183 µs，很显眼）
-  const end = base + M.dispatch + 6 + waves * P + P;
+  // epilogue：保存 dispatch 权重 → reset → unpermute（实测 183 µs，很显眼）
+  const end = t0 + waves * P + P;
   put('AIV1', 'AIV_SAVE_DISPATCH_W', end, M.saveWeights);
   put('AIV0', 'AIV_RESET', end + M.saveWeights + 1, M.reset);
   put('AIV0', 'AIV_UNPERMUTE', end + M.saveWeights + 3, M.unpermute);
   put('AIV1', 'AIV_UNPERMUTE', end + M.saveWeights + 3, M.unpermute);
 
   const span = end + M.saveWeights + M.unpermute + 4;
-  return { lanes, spanUs: span, periodUs: P, waves, waveBase: base + M.dispatch + 6,
+  return { lanes, spanUs: span, periodUs: P, waves, waveBase: t0,
     eventCount: lanes.reduce((n, l) => n + l.events.length, 0),
     stages: ['AIC_GMM1', 'AIC_GMM2', 'AIV_SWIGLU', 'AIV_DISPATCH', 'AIV_COMBINE',
              'AIV_INIT_ROUTING', 'AIV_UNPERMUTE', 'AIV_COUNT_EXCHANGE', 'AIV_GATHER_TOPK_W',
              'AIV_SAVE_DISPATCH_W', 'AIV_RESET'] };
 }
-
 function buildBwdSchematic(waves){
   const M = SCHED_MEAS.bwd, P = SCHED_MEAS.waveUsBwd;
   const lanes = [
@@ -2345,6 +2346,8 @@ document.querySelectorAll('details.detcard > summary').forEach(s =>
 </script>
 </body>
 </html>
+
+
 
 
 
