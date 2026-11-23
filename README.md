@@ -105,26 +105,31 @@ x/y 与优化器状态由框架持有，不计入算子 workspace；多个未反
 
 ## 回归校验
 
-本仓自包含：`ref/` 存着从 MegaMoe 源码导出的参考快照，校验不需要 MegaMoe 代码。
+本仓自包含：`ref/` 存着从 `layout_spec.py` 导出的参考快照，校验不需要 MegaMoe 源码。
 
 ```bash
-# 静态 + 运行时渲染守卫（76 项）
+# 静态 + 运行时渲染守卫（78 项）
 node smoke.cjs
-# 数值动态校验（网页模型 vs python/头文件公式，666 项）
+# 数值动态校验（网页模型 vs layout_spec 镜像，667 项）
 node verify_model.mjs ref/r.csv ref/e.csv ref/layout_ref.json
 ```
 
-MegaMoe 代码更新后重导参考值（本仓不含源码，需指向 MegaMoe 仓）：
+公式对齐：`layout_spec.py` 复刻 **DeepEP `main`@e18a161**（2026-11-23）的
+`mega_moe_bf16_layout.hpp` / `mega_moe_workspace_backward.hpp`。
+重导参考值：
 
 ```powershell
-# PowerShell 直接 > 会写 UTF-16，必须走 cmd /c
-cmd /c "python export_layout_reference.py --repo-root C:\MegaMoe\roofline_web > ref\layout_ref.json"
-# roofline 侧 CSV 同理，用 MegaMoe 仓的 probe 脚本重导：
-cmd /c "cd /d <MegaMoe 仓>\test\bigop_fused && python roofline_probe.py --cube-tflops 410.4 --bw-hccs 247.8 --bw-rack 141.6 --bw-cage 141.6 --r-node 8 --r-rack 8 --eps 8,16,32,64,128,256,512,1024 --csv <本仓>\ref\r.csv --out %TEMP%\r.png"
-cmd /c "cd /d <MegaMoe 仓>\test\bigop_fused && python ep_probe.py --bw-hccs 784 --bw-rack 80 --bw-cage 15 --r-node 8 --r-rack 8 --eps 8,16,32,64,128,256,320 --csv <本仓>\ref\e.csv --out %TEMP%\e.png"
+cmd /c "python export_layout_reference.py > ref\layout_ref.json"   # 必须走 cmd /c，PowerShell 的 > 写 UTF-16
+cmd /c "cd probes && python roofline_probe.py --cube-tflops 410.4 --bw-hccs 247.8 --bw-rack 141.6 --bw-cage 141.6 --r-node 8 --r-rack 8 --eps 8,16,32,64,128,256,512,1024 --csv ..\ref\r.csv --out %TEMP%\r.png"
+cmd /c "cd probes && python ep_probe.py --bw-hccs 784 --bw-rack 80 --bw-cage 15 --r-node 8 --r-rack 8 --eps 8,16,32,64,128,256,320 --csv ..\ref\e.csv --out %TEMP%\e.png"
 ```
 
-当前基线：**666 项数值全部一致**（roofline 560 + 显存 6 shape×三变体×gate/up 四档及 dispatch 输出 96 + docs 锚点 10）。
+**已对齐新仓**：saved 四档（−1,024 B：`bwProgress` 移入反向进度区）、dispatch 输出、
+forward transient（−65,792 B：ready 区移出）、backward workspace（`dp` 走整行 topk grad、
+新增 4 个 readiness + progress + stagedReady）。
+**未对齐（待移植）**：SHMEM/peermem（新仓为 `mega_moe_peermem.hpp`，MTE/URMA 两套）与 UDMA 变体。
+
+当前基线：**667 项数值全部一致**。
 
 > dispatch 输出口径（train PR 后）：普通前向 `embedDispatchOutput=false`——saved 不含
 > packed X / routed 权重，二者以独立 `dispatch_output` 张量返回框架，由

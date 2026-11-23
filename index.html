@@ -535,6 +535,8 @@ function alignUpTo(v, a){ return v <= 0 ? 0 : Math.ceil(v / a) * a; }
 function memModel(c){
   const M = Math.floor(c.m), K = Math.floor(c.k), N = Math.floor(c.n), T = Math.floor(c.topk),
         P = Math.floor(c.ep), E = Math.floor(c.epr), R = Math.floor(c.r);
+  // Ascend950 (A5)：MIX 1:2 下 36 AIC / 72 AIV；plan_bf16.cpp: blockNumPerEP = max(1, aic/EP)
+  const AIC = c.aic || 36;
   const saveMode = c.saveMode || 'none', clip = !!c.clipMasks;   // none | bf16 | mxfp8
   const F = N / 2, S = alignUpTo(P * E, 128), M256 = alignUpTo(M, 256);
   const rows = defs => defs.map(d => ({ name: d[0], shape: d[1], formula: d[2], bytes: d[3], life: d[4], role: d[5] }));
@@ -553,7 +555,6 @@ function memModel(c){
     ['ptrSumBeforeRank', '[EP,S] i32', '4·S（S=Align128(EP·EPR)）', 4*S, 'saved', '来源 rank 内本 rank 各 expert 的起点（跨 rank 寻址）'],
     ['ptrSavedTokenPerExpert', '[EP,S] i32', 'Align512(4·EP·S)', alignUpTo(4*P*S, 512), 'saved', '完整计数表快照；反向 Restore 回 peermem'],
     ...(embed ? [['ptrDispatchedTopkWeights', '[R] BF16', 'Align512(2·R)', alignUpTo(2*R, 512), 'saved', '与 packed X 同行序的权重；epilogue Hp=p·H / dH=p·dHp']] : []),
-    ['ptrBwProgress', '[256] i32', 'Align128(1024)', alignUpTo(1024, 128), 'saved', '反向诊断进度码（非数学输入）'],
   ];
   // ①b dispatch 输出：独立张量返回框架（normal 变体，embedDispatchOutput=false）
   //    框架可保留给常规 backward，也可释放走重派发反向（多一次 dispatch 通信换驻留）
@@ -597,23 +598,22 @@ function memModel(c){
   const saved = rows(savedDefs);
 
   // ② forward transient：仅服务本次前向，返回即释放（前向"不存"的部分 → 反向重算）
+  //    新仓（DeepEP xx/main）ForwardTransientWorkspaceLayout = ptrA2 + swiglu→gmm2 flag（ready 区已移出）
   const transientDefs = [
     ['ptrA2 · SwiGLU 输出 H', '[R,F] BF16', 'Align512(2·R·F)', alignUpTo(2*R*F, 512), 'trans', 'GMM2 输入；不保存，反向重算 gate/up 重建'],
     ['ptrFlagSwiGluToGmm2', '[E·16] i32', 'Align128(4·E·16)', alignUpTo(4*E*16, 128), 'trans', '前向同步 flag'],
-    ['ptrFlagDispatchToGmm1', '[E·16] i32', 'Align128(4·E·16)', alignUpTo(4*E*16, 128), 'trans', '前向同步 flag'],
   ];
-  const groupsPerExpert = Math.ceil(R / 256);
-  if (c.variant === 'udma')
-    transientDefs.push(['combineReady 计数', 'E·⌈R/128⌉ i32', 'Align512(4·E·⌈R/128⌉)', alignUpTo(4*E*Math.ceil(R/128), 512), 'trans', 'UDMA Combine-ready 计数']);
-  else if (c.variant === 'mgroup')
-    transientDefs.push(['MGroup ready flags', 'E·⌈R/256⌉·16 i32', 'Align128(64·E·⌈R/256⌉)', alignUpTo(64*E*groupsPerExpert, 128), 'trans', 'MGroup Wave 调度 ready 区']);
-  else
-    transientDefs.push(['Dispatch tile ready', 'E·⌈R/256⌉·16 i32', 'Align512(64·E·⌈R/256⌉)', alignUpTo(64*E*groupsPerExpert, 512), 'trans', '256 行粒度 Dispatch 发布计数']);
   const transient = rows(transientDefs);
 
-  // ③ backward workspace：backward 调用时才申请（反向临时 + 重算落盘区）
-  //    保存 gate/up 时无 recomputeGate/Up（直接读 saved 追加区）
-  const dpTiles = Math.ceil(F / 256);
+  // ③ backward workspace：backward 调用时才申请（新仓 BackwardWorkspaceLayout）
+  //    dpProducts 走 BackwardTopkPartialCount：bf16 保存且 F≤16384、F%64==0 → 整行 topk grad（1 份）
+  const wholeRowTopkGrad = saveMode === 'bf16' && F > 0 && F <= 16384 && F % 64 === 0;
+  const dpTiles = wholeRowTopkGrad ? 1 : Math.ceil(F / 256);
+  const stagedWave = wholeRowTopkGrad || (saveMode === 'mxfp8' && F > 0 && F % 32 === 0);
+  const gmDataGrad = saveMode !== 'none';                    // UseGmForBackwardDataGrad
+  const splitExperts = gmDataGrad && E <= 7 ? E : 0;          // DefaultBackwardDispatchSplitExperts
+  const producers = Math.max(1, Math.floor(AIC / P));         // blockNumPerEP = max(1, aic/EP)
+  const readySlot = alignUpTo(4 * E * 16, 128);
   const backwardDefs = [
     ['ptrDO · 加权 dO', '[R,K] BF16', 'Align512(2·R·K)', alignUpTo(2*R*K, 512), 'bwd', 'P0 gather grad_y×p → expert-packed dO'],
     ...(saveMode === 'none' ? [
@@ -621,9 +621,22 @@ function memModel(c){
       ['ptrRecomputeUp', '[R,F] BF16', 'Align512(2·R·F)', alignUpTo(2*R*F, 512), 'bwd', 'GMM1 反向重算 up（仅不保存时需要）'],
     ] : []),
     ['ptrGradZ', '[R,N] BF16', 'Align512(2·R·N)', alignUpTo(2*R*N, 512), 'bwd', 'dZ：SwiGLU 反向输出 / GMM1 反向输入'],
-    ['ptrHp', '[R,F] BF16', 'Align512(2·R·F)', alignUpTo(2*R*F, 512), 'bwd', 'Hp = p·H（加权 SwiGLU 输出）'],
-    ['ptrDpProducts', '[R,⌈F/256⌉] i32', 'Align512(4·R·⌈F/256⌉)', alignUpTo(4*R*dpTiles, 512), 'bwd', 'dp 部分和（256 宽 F tile，FP32）'],
-    ['反向同步 flags ×3', '—', 'Align128(64·E)+32+32', alignUpTo(64*E, 128) + 32 + 32, 'bwd', 'DispatchToGmm2Grad / Aiv1Ready / HDone'],
+    ['ptrHp', '[R,N] BF16', 'Align512(2·R·F)', alignUpTo(2*R*F, 512), 'bwd', 'Hp = p·H（加权 SwiGLU 输出）'],
+    ['ptrDpProducts', wholeRowTopkGrad ? '[R] i32（整行）' : '[R,⌈F/256⌉] i32',
+      wholeRowTopkGrad ? 'Align512(4·R)' : 'Align512(4·R·⌈F/256⌉)',
+      alignUpTo(4*R*dpTiles, 512), 'bwd',
+      wholeRowTopkGrad ? 'dp 部分和：BF16 保存模式走整行 topk grad（partial=1）' : 'dp 部分和（256 宽 F tile，FP32）'],
+    ['control / dispatchReady', '[E·16] i32', 'Align128(4·E·16)', readySlot, 'bwd', '反向 Dispatch 就绪控制'],
+    ['aivReady / hDone', '2×i32', 'Align32(4)×2', alignUpTo(4, 32) * 2, 'bwd', 'AIV / H 完成标志'],
+    ['dhpReady', '[E·16] i32', 'Align128(4·E·16)', readySlot, 'bwd', 'dHp 就绪计数（新仓新增）'],
+    ['dzReady', '[E·16] i32', 'Align128(4·E·16)', readySlot, 'bwd', 'dZ 就绪计数（新仓新增）'],
+    ['dxReady', '[E·16] i32', 'Align128(4·E·16)', readySlot, 'bwd', 'dX 就绪计数（新仓新增）'],
+    ...(gmDataGrad ? [['doReleased', '[E·16] i32', 'Align128(4·E·16)', readySlot, 'bwd', 'dO 读者全部退场计数（新仓新增）']] : []),
+    ...(splitExperts ? [['dispatch progress', 'E·EP·producers·64B',
+      'Align64(E·EP·producers·64)', alignUpTo(splitExperts * P * producers * 64, 64), 'bwd',
+      '按 producer 的行进度槽（savedMode≠none 且 E≤7）']] : []),
+    ...(splitExperts && stagedWave ? [['stagedReady', '(⌈R/128⌉+E)·64B',
+      '(⌈R/128⌉+E)·64', ((Math.ceil(R/128) + E) * 64), 'bwd', '分段 wave 就绪区（整行 topk grad）']] : []),
   ];
   const backward = rows(backwardDefs);
 
@@ -685,14 +698,17 @@ function memAnchors(){
   const base = { m: 4096, k: 7168, n: 8192, topk: 16, ep: 8, epr: 4, r: 65536 };
   const mk = (v, o) => memModel(Object.assign({}, base, { variant: v }, o || {}));
   return [
-    ['saved · 重算/legacy（normal，不含 packed X）', 530432, mk('normal', { saveMode: 'none' }).savedT],
-    ['saved · 保存 BF16（normal，dispatch 独立）', 1074272256, mk('normal', { saveMode: 'bf16' }).savedT],
-    ['saved · 保存 MXFP8（无裁剪）', 554178560, mk('normal', { saveMode: 'mxfp8' }).savedT],
-    ['saved · MXFP8 + 裁剪掩码（v2）', 654841856, mk('normal', { saveMode: 'mxfp8', clipMasks: true }).savedT],
-    ['saved · MGroup BF16（仍嵌 packed X）', 2013927424, mk('mgroup', { saveMode: 'bf16' }).savedT],
+    // —— 已对齐 DeepEP xx/main @ e18a161 ——
+    ['saved · 重算/legacy（normal，不含 packed X）', 529408, mk('normal', { saveMode: 'none' }).savedT],
+    ['saved · 保存 BF16（normal，dispatch 独立）', 1074271232, mk('normal', { saveMode: 'bf16' }).savedT],
+    ['saved · 保存 MXFP8（无裁剪）', 554177536, mk('normal', { saveMode: 'mxfp8' }).savedT],
+    ['saved · MXFP8 + 裁剪掩码（v2）', 654840832, mk('normal', { saveMode: 'mxfp8', clipMasks: true }).savedT],
+    ['saved · MGroup BF16（仍嵌 packed X）', 2013926400, mk('mgroup', { saveMode: 'bf16' }).savedT],
     ['dispatch 输出（packed X + routed 权重）', 939655168, mk('normal').dispatchOutT],
-    ['普通 BF16 transient（含 ready 区）', 536936960, mk('normal').transT],
-    ['UDMA transient', 536879616, mk('udma').transT],
+    ['普通 transient（A2 + swiglu→gmm2 flag）', 536871168, mk('normal').transT],
+    ['backward · none（含重算 gate/up）', 3628074048, mk('normal', { saveMode: 'none' }).bwdT],
+    ['backward · 保存 bf16（整行 topk grad）', 2550441536, mk('normal', { saveMode: 'bf16' }).bwdT],
+    // —— 未对齐：SHMEM/UDMA 待移植（新仓走 mega_moe_peermem.hpp 的 MTE/URMA 布局）——
     ['普通/MGroup SHMEM 布局需要量', 1879257088, mk('normal').shmT],
     ['UDMA SHMEM 布局需要量', 2818769920, mk('udma').shmT],
   ];

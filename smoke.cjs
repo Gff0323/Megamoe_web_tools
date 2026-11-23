@@ -41,7 +41,8 @@ ok(html.includes("生命周期") && html.includes("F→B") && html.includes("仅
 ok(html.includes("xTitle: '训练阶段（每 rank）'"), "M1 xTitle");
 ok(html.includes("peakMark: true") && html.includes("↑ 峰值"), "M1 峰值标注");
 ok(html.includes("const BX = i => Lm + (i + 0.5) * iw / n"), "柱状图槽位居中");
-for (const v of ["530432", "1074272256", "554178560", "939655168", "2013927424", "1879257088", "2818769920", "536936960"])
+for (const v of ["529408", "1074271232", "554177536", "939655168", "2013926400",
+  "3628074048", "2550441536", "536871168", "1879257088", "2818769920"])
   ok(html.includes(v), `锚点常量 ${v}`);
 ok(html.includes("/*MODEL-START*/") && html.includes("/*MODEL-END*/"), "MODEL 标记");
 ok(html.includes("/*MEM-MODEL-START*/") && html.includes("/*MEM-MODEL-END*/"), "MEM-MODEL 标记");

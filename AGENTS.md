@@ -9,23 +9,22 @@
 - 保持**单 HTML、无外部运行依赖**（离线双击可开）。
 - 本地起服务：`python -m http.server 8791 --directory C:\MegaMoe\megamoe_web_tools`。
 
-## 公式权威来源在 MegaMoe 仓（本仓不含）
+## 公式权威来源：DeepEP（本仓只存镜像与快照）
 
-- 布局公式权威：MegaMoe 仓的
-  `test/megamoe_bf16_test/test_workspace_layout.py` 与
-  `kernels/mega_moe_bf16/include/mega_moe_training_workspace.h`。
-- 本仓的 `ref/*.json|csv` 是从那份源码导出的**快照**，导出方式：
-  ```powershell
-  cmd /c "python export_layout_reference.py --repo-root <MegaMoe 仓路径> > ref\layout_ref.json"
-  ```
-  （PowerShell 直接 `>` 会写 UTF-16，必须走 `cmd /c`）
-- MegaMoe 代码更新后（尤其 `origin/train` 合入），**先重导参考值再跑对账**；
-  不一致项即为页面模型需要跟进的地方，禁止手调页面常数去凑数。
+- 算子代码的家在 **https://github.com/xixing-321/DeepEP**（`main`），
+  布局公式在 `experiments/megamoe/csrc/kernels/mega_moe/common/`：
+  `mega_moe_bf16_layout.hpp`、`mega_moe_workspace_backward.hpp`、`mega_moe_peermem.hpp`。
+- 新仓**没有** python 布局规格，所以本仓维护 `layout_spec.py` —— 逐项复刻上面头文件的 python 镜像，
+  头部记录对齐的 commit。**头文件一变，先改 layout_spec.py，再改页面。**
+- 对账快照：`ref/layout_ref.json`（由 `python export_layout_reference.py > ref/layout_ref.json` 生成）。
+- `probes/` 存 `roofline_probe.py` / `ep_probe.py`（零依赖），用于重导 `ref/r.csv`、`ref/e.csv`。
+- 已知未对齐项：**SHMEM/peermem（新仓 MTE/URMA 两套布局）与 UDMA 变体**仍在用旧口径，
+  页面与 ref 里都标注了；移植后再更新锚点。
 
 ## 交付纪律（每次修改必守）
 
 1. `node smoke.cjs` —— 静态守卫 + 运行时渲染守卫（桩 DOM 真跑渲染）。
-2. `node verify_model.mjs ref/r.csv ref/e.csv ref/layout_ref.json` —— 数值对账（当前基线 666 项）。
+2. `node verify_model.mjs ref/r.csv ref/e.csv ref/layout_ref.json` —— 数值对账（当前基线 667 项）。
 3. 提交并 push 到 `main`；Pages 自动发布后，**从公网拉取 index.html 核对 SHA-256** 再报告上线。
 4. 报告时区分三态：本地提交 / 已推送 / 公网可访问。
 
